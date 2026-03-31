@@ -107,7 +107,7 @@ The preprocessed IAT data chunks are in `iat/iat_data/` (not included in this re
 
 ## Data Availability
 
-**Study 1:** Raw response time data for the 18 tasks are in `sfi/sfi_data/*.txt`. These data were originally collected by [Lerche et al. (2020)](https://doi.org/10.1037/xge0000780) and are publicly available on the OSF (https://osf.io/xpbwe).
+**Study 1:** Raw response time data for the 18 tasks are in `sfi/sfi_data/*.txt`. These data were originally collected by [Lerche et al. (2020)](https://psycnet.apa.org/fulltext/2020-30747-001.html) and are publicly available on the OSF (https://osf.io/xpbwe).
 
 **Study 2:** The Race IAT data are publicly available from the [Project Implicit OSF repository](https://osf.io/52qxl). The preprocessed pickle files used in this analysis are not included in this repository due to their size (~6.5 GB). They can be found on the OSF: LINK. See `iat/iat_data/README_data.md` for instructions on how to reproduce the preprocessing step.
 
