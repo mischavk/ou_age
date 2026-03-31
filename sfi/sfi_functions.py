@@ -1,9 +1,7 @@
 """
 sfi_functions.py — Model definitions and analysis utilities for OUM/DDM comparison.
 
-Implements the Ornstein-Uhlenbeck Model (OUM) and Drift Diffusion Model (DDM) for
-reaction-time analysis in a Bayesian Sequential Fitting Inference (SFI) framework
-using BayesFlow 2.0.10.
+Implements the Ornstein-Uhlenbeck Model (OUM) and Drift Diffusion Model (DDM) using BayesFlow 2.0.10.
 
 Models
 ------
@@ -24,8 +22,7 @@ Suffix 1/2/3    : three independent tasks of the same category type.
 
 Usage
 -----
-This module is imported by all SFI notebooks.  For figure generation, see
-``sfi_figure_generation.ipynb``.
+This module is imported by all SFI notebooks. 
 """
 
 import os
