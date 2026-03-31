@@ -1,0 +1,18 @@
+name: bfdev
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.26
+  - scipy>=1.11
+  - pandas>=2.0
+  - matplotlib>=3.8
+  - seaborn>=0.13
+  - numba>=0.59
+  - pip:
+    - bayesflow==2.0.10
+    - jax[cuda12]>=0.4
+    - jaxlib>=0.4
+    - keras>=3.0

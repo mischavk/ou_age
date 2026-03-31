@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large data files — not tracked in git
+# Study 1: processed posterior samples (270 MB)
+sfi/sfi_data/*_estimates.npy
+sfi/sfi_data/*_ppc.npy
+# Study 2: preprocessed IAT data chunks (6.5 GB) and result CSVs (1.8 GB)
+iat/iat_data/*.p
+iat/iat_data/estimates/iat_results_ddm.csv
+iat/iat_data/estimates/iat_results_oum.csv
+iat/iat_data/estimates/iat_model_comparison_results.csv
+iat/iat_data/estimates/iat_demographics.csv
+# Legacy files, prior exploration, overleaf files
+legacy/
+prior_exploration/
+overleaf/
+
+
+# Windows metadata artifacts
+*.Zone.Identifier
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Claude Code settings
+.claude/
+
+# Conda / virtualenv
+.env
+*.env
+venv/
+
+# Log files (written by run_all_training.sh to /tmp — not in repo anyway)
+*.log
