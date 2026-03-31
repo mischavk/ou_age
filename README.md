@@ -2,7 +2,7 @@
 
 Code and data for the manuscript:
 
-> von Krause, M., Wang, J.-S., Donkin, C., & Radev, S. T. (in prep.). *An investigation of age differences in the Ornstein-Uhlenbeck model of decision making.*
+> von Krause, M., Wang, J.-S., Donkin, C., Lerche, V., & Radev, S. T. (in prep.). *An investigation of age differences in the Ornstein-Uhlenbeck model of decision making.*
 
 All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.10](https://bayesflow.org). The Ornstein-Uhlenbeck model (OUM) extends the standard diffusion decision model (DDM) with a self-excitation parameter *k* that captures the degree to which accumulated evidence accelerates further accumulation. We compare the DDM and OUM across two data sets and examine how *k* and other cognitive parameters relate to age.
 
@@ -141,7 +141,7 @@ Simulations use Euler-Maruyama integration (implemented in Numba for speed). All
 If you use this code, please cite the manuscript and BayesFlow:
 
 ```
-von Krause, M., Wang, J.-S., Donkin, C., & Radev, S. T. (in prep.).
+von Krause, M., Wang, J.-S., Donkin, C., Lerche, V.,  & Radev, S. T. (in prep.).
 An investigation of age differences in the Ornstein-Uhlenbeck model of decision making.
 ```
 
