@@ -18,10 +18,11 @@ The raw data were preprocessed into 329 chunks of ~15,000–30,000 participants 
 
 Trials were excluded if RT < 200 ms or > 10 s.
 
-To reproduce the preprocessing, see the original analysis notebooks in `iat/legacy/iat_analyes.ipynb`.
+The pre-processing code can be found here:
+https://github.com/mischavk/big_data_ddm24/blob/main/02_Data_preparation_ready.ipynb
 
 ## Included files
 
 The following summary files are included in this repository:
-- `estimates/iat_model_comparison_results.csv` — posterior model probabilities (DDM / OUM) per person
 - `estimates/iat_demographics.csv` — age, gender, education, country per person
+Pre-processed data files and estimates can be found on the OSF.

@@ -12,7 +12,7 @@ All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.10](https:/
 
 ```
 .
-├── sfi/                  # Study 1 — 18 binary decision tasks (N = 125)
+└── sfi/                  # Study 1 — 18 binary decision tasks (N = 125)
 │   ├── sfi_functions.py          # Model definitions, priors, simulators, utilities
 │   ├── run_model_comparison_fast.py
 │   ├── run_model_comparison_slow.py
@@ -23,28 +23,19 @@ All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.10](https:/
 │   ├── run_figure1_schematic.py
 │   ├── run_all_training.sh       # Runs all 7 steps sequentially
 │   ├── sfi_data/                 # Raw task data (.txt) and posterior estimates (.npy)
-│   ├── figures/                  # Generated figures (PDF)
-│   ├── prior_exploration/        # Prior selection scripts and documentation
-│   └── legacy/                   # Original Jupyter notebooks (superseded by scripts)
+│   └── figures/                  # Generated figures (PDF)
 │
-├── iat/                  # Study 2 — Race IAT (N ≈ 5.6 million)
-│   ├── iat_functions.py          # Model definitions, priors, simulators, utilities
-│   ├── run_model_comparison.py
-│   ├── run_parameter_estimation.py
-│   ├── run_analyses.py
-│   ├── run_ppc_analysis.py
-│   ├── run_all_training.sh       # Runs all 4 steps sequentially
-│   ├── iat_data/                 # Preprocessed IAT data chunks (.p) and results (.csv)
-│   ├── figures/                  # Generated figures (PDF)
-│   └── legacy/                   # Original Jupyter notebooks (superseded by scripts)
 │
-├── overleaf/             # Manuscript source (LaTeX, figures, tables)
-│   ├── manuscript.tex
-│   ├── references.bib
-│   ├── figures/                  # All publication-ready figures
-│   └── table*.tex                # Auto-generated tables
-│
-└── legacy/               # Root-level exploratory files not used in final analyses
+└── iat/                  # Study 2 — Race IAT (N ≈ 5.6 million)
+   ├── iat_functions.py          # Model definitions, priors, simulators, utilities
+   ├── run_model_comparison.py
+   ├── run_parameter_estimation.py
+   ├── run_analyses.py
+   ├── run_ppc_analysis.py
+   ├── run_all_training.sh       # Runs all 4 steps sequentially
+   ├── iat_data/                 # Preprocessed IAT data chunks (.p) and results (.csv)
+   └── figures/                  # Generated figures (PDF)
+
 ```
 
 ---
@@ -116,9 +107,9 @@ The preprocessed IAT data chunks are in `iat/iat_data/` (not included in this re
 
 ## Data Availability
 
-**Study 1:** Raw response time data for the 18 tasks are in `sfi/sfi_data/*.txt`. These data were originally collected by [Lerche et al. (2020)](https://doi.org/10.1037/xge0000780) and are included here with permission.
+**Study 1:** Raw response time data for the 18 tasks are in `sfi/sfi_data/*.txt`. These data were originally collected by [Lerche et al. (2020)](https://doi.org/10.1037/xge0000780) and are publicly available on the OSF (https://osf.io/xpbwe).
 
-**Study 2:** The Race IAT data are publicly available from the [Project Implicit OSF repository](https://osf.io/52qxl). The preprocessed pickle files used in this analysis are not included in this repository due to their size (~6.5 GB). See `iat/iat_data/README_data.md` for instructions on how to reproduce the preprocessing step.
+**Study 2:** The Race IAT data are publicly available from the [Project Implicit OSF repository](https://osf.io/52qxl). The preprocessed pickle files used in this analysis are not included in this repository due to their size (~6.5 GB). They can be found on the OSF: LINK. See `iat/iat_data/README_data.md` for instructions on how to reproduce the preprocessing step.
 
 ---
 
