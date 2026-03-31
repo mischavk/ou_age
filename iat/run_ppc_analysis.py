@@ -35,10 +35,11 @@ print(f"\n  OUM: {len(oum_df)} total, {n_ppc_oum} with PPC")
 print(f"  DDM: {len(ddm_df)} total, {n_ppc_ddm} with PPC")
 
 # ── Wasserstein distance differences ──
-print("\nWasserstein distance (DDM - OUM, positive = DDM better):")
+# OUM - DDM so positive = DDM has lower error = DDM fits better
+print("\nWasserstein distance (OUM - DDM, positive = DDM better):")
 wd_cols = ["wd_c_congruent", "wd_e_congruent", "wd_c_incongruent", "wd_e_incongruent"]
 for col in wd_cols:
-    diff = np.nanmean(ddm_df[col] - oum_df[col])
+    diff = np.nanmean(oum_df[col] - ddm_df[col])
     print(f"  {col:25s}: {diff:+.4f}")
 
 # ── RMSE differences ──
@@ -49,15 +50,15 @@ rmse_cols = [
     "rms_q7_e_congruent", "rms_q9_e_congruent",
 ]
 
-print("\nRMSE differences (DDM - OUM, positive = DDM better):")
+print("\nRMSE differences (OUM - DDM, positive = DDM better):")
 print("  Correct-congruent:")
 for col in rmse_cols[:5]:
-    diff = np.nanmean(ddm_df[col] - oum_df[col])
+    diff = np.nanmean(oum_df[col] - ddm_df[col])
     print(f"    {col:35s}: {diff:+.4f}")
 
 print("  Error-congruent:")
 for col in rmse_cols[5:]:
-    diff = np.nanmean(ddm_df[col] - oum_df[col])
+    diff = np.nanmean(oum_df[col] - ddm_df[col])
     print(f"    {col:35s}: {diff:+.4f}")
 
 # ── Figure: PPC comparison ──
@@ -68,15 +69,16 @@ categories = ["RMSE\ncorrect\ncong.", "RMSE\nerror\ncong.",
               "WD\ncorrect\ncong.", "WD\nerror\ncong.",
               "WD\ncorrect\ninc.", "WD\nerror\ninc."]
 
-rmse_c_diffs_raw = (ddm_df[rmse_cols[:5]] - oum_df[rmse_cols[:5]]).values.flatten()
+# OUM - DDM so positive = DDM has lower error = DDM fits better
+rmse_c_diffs_raw = (oum_df[rmse_cols[:5]] - ddm_df[rmse_cols[:5]]).values.flatten()
 rmse_c_diffs = rmse_c_diffs_raw[~np.isnan(rmse_c_diffs_raw)]
-rmse_e_diffs_raw = (ddm_df[rmse_cols[5:]] - oum_df[rmse_cols[5:]]).values.flatten()
+rmse_e_diffs_raw = (oum_df[rmse_cols[5:]] - ddm_df[rmse_cols[5:]]).values.flatten()
 rmse_e_diffs = rmse_e_diffs_raw[~np.isnan(rmse_e_diffs_raw)]
 wd_diffs = [
-    (ddm_df["wd_c_congruent"] - oum_df["wd_c_congruent"]).dropna().values,
-    (ddm_df["wd_e_congruent"] - oum_df["wd_e_congruent"]).dropna().values,
-    (ddm_df["wd_c_incongruent"] - oum_df["wd_c_incongruent"]).dropna().values,
-    (ddm_df["wd_e_incongruent"] - oum_df["wd_e_incongruent"]).dropna().values,
+    (oum_df["wd_c_congruent"] - ddm_df["wd_c_congruent"]).dropna().values,
+    (oum_df["wd_e_congruent"] - ddm_df["wd_e_congruent"]).dropna().values,
+    (oum_df["wd_c_incongruent"] - ddm_df["wd_c_incongruent"]).dropna().values,
+    (oum_df["wd_e_incongruent"] - ddm_df["wd_e_incongruent"]).dropna().values,
 ]
 
 fig, ax = plt.subplots(figsize=(10, 6))
@@ -91,27 +93,33 @@ for pos, vals in zip(positions, all_values):
     else:
         vals_plot = vals[~np.isnan(vals)]
 
+    colors = ["tab:blue" if v >= 0 else "tab:orange" for v in vals_plot]
     ax.scatter(
         np.full_like(vals_plot, pos) + np.random.uniform(-0.15, 0.15, len(vals_plot)),
-        vals_plot, alpha=0.05, s=5, color="gray",
+        vals_plot, alpha=0.05, s=5, c=colors,
     )
-    ax.plot([pos - 0.3, pos + 0.3], [np.nanmedian(vals)] * 2,
-            color="red", linewidth=2.5, zorder=5)
-    ax.plot([pos - 0.3, pos + 0.3], [np.nanmean(vals)] * 2,
-            color="blue", linewidth=2, linestyle="--", zorder=5)
+    med = np.nanmedian(vals)
+    med_color = "tab:blue" if med >= 0 else "tab:orange"
+    ax.plot([pos - 0.3, pos + 0.3], [med] * 2,
+            color=med_color, linewidth=2.5, zorder=5)
+    mean_val = np.nanmean(vals)
+    mean_color = "tab:blue" if mean_val >= 0 else "tab:orange"
+    ax.plot([pos - 0.3, pos + 0.3], [mean_val] * 2,
+            color=mean_color, linewidth=2, linestyle="--", zorder=5)
 
 ax.axhline(0, color="black", linewidth=1, linestyle="--")
+ax.set_ylim(-0.25, 0.25)
 ax.set_xticks(positions)
 ax.set_xticklabels(categories, fontsize=10)
-ax.set_ylabel("DDM − OUM (positive = DDM better)", fontsize=12)
+ax.set_ylabel("OUM − DDM (blue = DDM better, orange = OUM better)", fontsize=12)
 ax.set_title("IAT — PPC metric differences", fontsize=14, fontweight="bold")
 ax.grid(axis="y", alpha=0.3)
 
 # Legend
 from matplotlib.lines import Line2D
 legend_elements = [
-    Line2D([0], [0], color="red", linewidth=2.5, label="Median"),
-    Line2D([0], [0], color="blue", linewidth=2, linestyle="--", label="Mean"),
+    Line2D([0], [0], color="gray", linewidth=2.5, label="Median"),
+    Line2D([0], [0], color="gray", linewidth=2, linestyle="--", label="Mean"),
 ]
 ax.legend(handles=legend_elements, fontsize=10)
 

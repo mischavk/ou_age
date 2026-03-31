@@ -15,6 +15,12 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+# Custom colormap: orange (OUM better, negative) → white → blue (DDM better, positive)
+_CMAP_OB = LinearSegmentedColormap.from_list(
+    "orange_blue", ["tab:orange", "white", "tab:blue"]
+)
 
 FIGURES_DIR = "figures/"
 os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -50,17 +56,18 @@ def compute_ppc_metrics(prefix: str, speed: str) -> pd.DataFrame:
         )[()]
 
         # Wasserstein distance (correct, error)
+        # OUM − DDM so that positive = DDM has lower error = DDM fits better
         for col in range(2):
             metrics[i, col] = (
-                np.nanmean(ppc_ddm["wd"][:, col])
-                - np.nanmean(ppc_oum["wd"][:, col])
+                np.nanmean(ppc_oum["wd"][:, col])
+                - np.nanmean(ppc_ddm["wd"][:, col])
             )
 
         # RMSE at 5 quantiles x 2 (correct, error)
         for col in range(10):
             metrics[i, col + 2] = (
-                np.nanmean(ppc_ddm["rmse"][:, col])
-                - np.nanmean(ppc_oum["rmse"][:, col])
+                np.nanmean(ppc_oum["rmse"][:, col])
+                - np.nanmean(ppc_ddm["rmse"][:, col])
             )
 
     return pd.DataFrame(metrics, index=task_names, columns=METRIC_COLS)
@@ -88,18 +95,23 @@ def plot_ppc_comparison(df_fast: pd.DataFrame, df_slow: pd.DataFrame,
 
         positions = range(len(categories))
         for pos, vals in zip(positions, values):
+            # Color each point by sign: blue if DDM better, orange if OUM better
+            colors = ["tab:blue" if v >= 0 else "tab:orange" for v in vals]
             ax.scatter(
                 np.full_like(vals, pos) + np.random.uniform(-0.1, 0.1, len(vals)),
-                vals, alpha=0.4, s=20, color="gray",
+                vals, alpha=0.5, s=20, c=colors,
             )
-            ax.plot([pos - 0.25, pos + 0.25], [np.median(vals)] * 2,
-                    color="red", linewidth=2.5, zorder=5)
+            med = np.median(vals)
+            med_color = "tab:blue" if med >= 0 else "tab:orange"
+            ax.plot([pos - 0.25, pos + 0.25], [med] * 2,
+                    color=med_color, linewidth=2.5, zorder=5)
 
         ax.axhline(0, color="black", linewidth=1, linestyle="--")
         ax.set_xticks(positions)
         ax.set_xticklabels(categories, fontsize=11)
         ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.set_ylabel("DDM − OUM (positive = DDM better)", fontsize=11)
+        ax.set_ylabel("OUM − DDM (blue = DDM better, orange = OUM better)",
+                       fontsize=11)
         ax.grid(axis="y", alpha=0.3)
 
     plt.tight_layout()
@@ -110,14 +122,14 @@ def plot_ppc_comparison(df_fast: pd.DataFrame, df_slow: pd.DataFrame,
 def plot_ppc_heatmap(df: pd.DataFrame, title: str, save_path: str) -> None:
     """Create a heatmap of per-task DDM-OUM PPC differences."""
     fig, ax = plt.subplots(figsize=(12, 5))
-    im = ax.imshow(df.values, cmap="RdBu_r", aspect="auto", vmin=-0.2, vmax=0.2)
+    im = ax.imshow(df.values, cmap=_CMAP_OB, aspect="auto", vmin=-0.2, vmax=0.2)
     ax.set_xticks(range(len(df.columns)))
     ax.set_xticklabels(df.columns, rotation=45, ha="right", fontsize=9)
     ax.set_yticks(range(len(df.index)))
     ax.set_yticklabels(df.index, fontsize=10)
-    ax.set_title(f"{title}\n(DDM − OUM: red = DDM better, blue = OUM better)",
+    ax.set_title(f"{title}\n(blue = DDM better, orange = OUM better)",
                  fontsize=13)
-    plt.colorbar(im, ax=ax, label="DDM − OUM", shrink=0.8)
+    plt.colorbar(im, ax=ax, label="OUM − DDM", shrink=0.8)
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches="tight")
     plt.close(fig)
