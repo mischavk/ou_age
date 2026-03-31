@@ -60,5 +60,3 @@ All priors are defined in `sfi_functions.py`. Boundary separation uses a sigmoid
 | *a* | 8·σ(𝒩(−1.0, 1.0)) | 8·σ(𝒩(0.0, 1.0)) | 10·σ(𝒩(−1.3, 1.0)) | 10·σ(𝒩(1.3, 2.0)) |
 | *τ* | U(0.1, 1.0) | U(0.1, 1.0) | U(0.1, 3.0) | U(0.1, 3.0) |
 | *k* | — | Γ(4.0, 0.5) + 1 | — | Γ(4.0, 0.5) + 1 |
-
-The rationale for these priors is documented in `prior_exploration/`.
