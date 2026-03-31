@@ -27,6 +27,7 @@ overleaf/
 
 # Windows metadata artifacts
 *.Zone.Identifier
+*:Zone.Identifier
 
 # Editor / OS
 .DS_Store
