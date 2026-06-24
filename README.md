@@ -4,7 +4,7 @@ Code and data for the manuscript:
 
 > von Krause, M., Wang, J.-S., Donkin, C., Lerche, V., & Radev, S. T. (in prep.). *An investigation of age differences in the Ornstein-Uhlenbeck model of decision making.*
 
-All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.10](https://bayesflow.org). The Ornstein-Uhlenbeck model (OUM) extends the standard diffusion decision model (DDM) with a self-excitation parameter *k* that captures the degree to which accumulated evidence accelerates further accumulation. We compare the DDM and OUM across two data sets and examine how *k* and other cognitive parameters relate to age.
+All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.12](https://bayesflow.org). The Ornstein-Uhlenbeck model (OUM) extends the standard diffusion decision model (DDM) with a self-excitation parameter *k* that captures the degree to which accumulated evidence accelerates further accumulation. We compare the DDM and OUM across two data sets and examine how *k* and other cognitive parameters relate to age.
 
 ---
 
@@ -12,30 +12,34 @@ All analyses use simulation-based inference (SBI) via [BayesFlow 2.0.10](https:/
 
 ```
 .
-└── sfi/                  # Study 1 — 18 binary decision tasks (N = 125)
+├── sfi/                  # Study 1 — 18 binary decision tasks (N = 125)
 │   ├── sfi_functions.py          # Model definitions, priors, simulators, utilities
-│   ├── run_model_comparison_fast.py
-│   ├── run_model_comparison_slow.py
-│   ├── run_parameter_estimation_fast.py
-│   ├── run_parameter_estimation_slow.py
+│   ├── run_model_comparison_{fast,slow}.py
+│   ├── run_parameter_estimation_{fast,slow}.py
 │   ├── run_analyses.py
 │   ├── run_ppc_analysis.py
 │   ├── run_figure1_schematic.py
 │   ├── run_all_training.sh       # Runs all 7 steps sequentially
+│   ├── table1_tasks.tex, tableA_age_correlations_sfi.tex
+│   ├── models/                   # Saved trained networks (.keras)
 │   ├── sfi_data/                 # Raw task data (.txt) and posterior estimates (.npy)
 │   └── figures/                  # Generated figures (PDF)
-│
-│
-└── iat/                  # Study 2 — Race IAT (N ≈ 5.6 million)
-   ├── iat_functions.py          # Model definitions, priors, simulators, utilities
-   ├── run_model_comparison.py
-   ├── run_parameter_estimation.py
-   ├── run_analyses.py
-   ├── run_ppc_analysis.py
-   ├── run_all_training.sh       # Runs all 4 steps sequentially
-   ├── iat_data/                 # Preprocessed IAT data chunks (.p) and results (.csv)
-   └── figures/                  # Generated figures (PDF)
-
+├── iat/                  # Study 2 — Race IAT (N ≈ 5.6 million)
+│   ├── iat_functions.py          # Model definitions, priors, simulators, utilities
+│   ├── run_model_comparison.py
+│   ├── run_parameter_estimation.py
+│   ├── run_analyses.py
+│   ├── run_ppc_analysis.py
+│   ├── run_diagnostics.py        # Recovery/calibration figures from saved networks
+│   ├── diagnostics_utils.py      # Shared figure helpers + parameter labels
+│   ├── run_all_training.sh       # Runs all 4 steps sequentially
+│   ├── table3_age_correlations_iat.tex
+│   ├── models/                   # Saved trained networks (.keras)
+│   ├── iat_data/                 # Preprocessed IAT data chunks (.p) and results (.csv)
+│   └── figures/                  # Generated figures (PDF)
+├── environment.yml
+├── LICENSE
+└── README.md
 ```
 
 ---
@@ -54,7 +58,7 @@ conda activate bfdev
 | Package | Version |
 |---------|---------|
 | Python | 3.11 |
-| bayesflow | 2.0.10 |
+| bayesflow | 2.0.12 |
 | jax / jaxlib | ≥ 0.4 (GPU build recommended) |
 | keras | ≥ 3.0 |
 | numpy | ≥ 1.26 |
@@ -64,7 +68,7 @@ conda activate bfdev
 | seaborn | ≥ 0.13 |
 | numba | ≥ 0.59 |
 
-All neural networks use the JAX backend (`KERAS_BACKEND=jax`). A CUDA-capable GPU is strongly recommended (tested on RTX 4080 Super).
+All neural networks use the JAX backend (`KERAS_BACKEND=jax`). A CUDA-capable GPU is strongly recommended (tested on RTX 3080).
 
 ---
 
@@ -77,7 +81,7 @@ cd sfi
 bash run_all_training.sh
 ```
 
-This runs all 7 steps sequentially (~8–12 h on an RTX 4080 Super):
+This runs all 7 steps sequentially:
 1. Model comparison — fast tasks
 2. Model comparison — slow tasks
 3. Parameter estimation — fast tasks
@@ -95,10 +99,10 @@ cd iat
 bash run_all_training.sh
 ```
 
-This runs all 4 steps sequentially (~6–10 h on an RTX 4080 Super):
+This runs all 4 steps sequentially:
 1. Model comparison
 2. Parameter estimation (all 329 data chunks processed serially)
-3. Age trend analyses and Figure 5/6
+3. Age trend analyses and figures
 4. Posterior predictive checks
 
 The preprocessed IAT data chunks are in `iat/iat_data/` (not included in this repository due to file size; see Data Availability below). Results are saved as CSV files in `iat/iat_data/estimates/` and figures to `iat/figures/`.

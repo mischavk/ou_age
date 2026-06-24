@@ -1,9 +1,10 @@
 """Posterior predictive check (PPC) analysis and figures.
 
-Loads PPC metrics (RMSE, Wasserstein distance) saved by the parameter
+Loads PPC metrics (RT-quantile RMSE and accuracy) saved by the parameter
 estimation scripts, computes DDM-OUM differences, and generates figures.
 
-Positive values = DDM fits better, negative = OUM fits better.
+Each metric is a fit discrepancy (lower = closer to data); figures plot
+DDM - OUM, so negative => DDM fits better, positive => OUM fits better.
 
 Usage:
     python run_ppc_analysis.py
@@ -26,9 +27,9 @@ FIGURES_DIR = "figures/"
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
 METRIC_COLS = [
-    "WD correct", "WD error",
     "RMSE Q1 C", "RMSE Q3 C", "RMSE Q5 C", "RMSE Q7 C", "RMSE Q9 C",
     "RMSE Q1 E", "RMSE Q3 E", "RMSE Q5 E", "RMSE Q7 E", "RMSE Q9 E",
+    "Accuracy",
 ]
 
 
@@ -40,7 +41,7 @@ def compute_ppc_metrics(prefix: str, speed: str) -> pd.DataFrame:
         if f.endswith(".txt") and f.startswith(prefix)
     ])
 
-    metrics = np.zeros((len(files), 12))
+    metrics = np.zeros((len(files), 11))
     task_names = []
 
     for i, file in enumerate(files):
@@ -55,6 +56,7 @@ def compute_ppc_metrics(prefix: str, speed: str) -> pd.DataFrame:
             allow_pickle=True,
         )[()]
 
+<<<<<<< HEAD
         # Wasserstein distance (correct, error)
         # OUM − DDM so that positive = DDM has lower error = DDM fits better
         for col in range(2):
@@ -68,7 +70,17 @@ def compute_ppc_metrics(prefix: str, speed: str) -> pd.DataFrame:
             metrics[i, col + 2] = (
                 np.nanmean(ppc_oum["rmse"][:, col])
                 - np.nanmean(ppc_ddm["rmse"][:, col])
+=======
+        # RMSE at 5 quantiles x 2 (correct, error)
+        for col in range(10):
+            metrics[i, col] = (
+                np.nanmean(ppc_ddm["rmse"][:, col])
+                - np.nanmean(ppc_oum["rmse"][:, col])
+>>>>>>> d7f98a0 (Major update)
             )
+
+        # Accuracy fit discrepancy (|predicted - empirical|, per model)
+        metrics[i, 10] = np.nanmean(ppc_ddm["acc"]) - np.nanmean(ppc_oum["acc"])
 
     return pd.DataFrame(metrics, index=task_names, columns=METRIC_COLS)
 
@@ -79,18 +91,16 @@ def plot_ppc_comparison(df_fast: pd.DataFrame, df_slow: pd.DataFrame,
     fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
 
     for ax, df, title in zip(axes, [df_fast, df_slow], ["Fast tasks", "Slow tasks"]):
-        # Separate RMSE correct, RMSE error, WD
+        # Separate RMSE correct, RMSE error
         rmse_c = df[["RMSE Q1 C", "RMSE Q3 C", "RMSE Q5 C", "RMSE Q7 C", "RMSE Q9 C"]]
         rmse_e = df[["RMSE Q1 E", "RMSE Q3 E", "RMSE Q5 E", "RMSE Q7 E", "RMSE Q9 E"]]
-        wd = df[["WD correct", "WD error"]]
 
         # Plot per-task means as points, with median line
-        categories = ["RMSE\ncorrect", "RMSE\nerror", "WD\ncorrect", "WD\nerror"]
+        categories = ["Accuracy", "RMSE\ncorrect", "RMSE\nerror"]
         values = [
+            df["Accuracy"].values,
             rmse_c.values.flatten(),
             rmse_e.values.flatten(),
-            wd["WD correct"].values,
-            wd["WD error"].values,
         ]
 
         positions = range(len(categories))
@@ -110,8 +120,12 @@ def plot_ppc_comparison(df_fast: pd.DataFrame, df_slow: pd.DataFrame,
         ax.set_xticks(positions)
         ax.set_xticklabels(categories, fontsize=11)
         ax.set_title(title, fontsize=14, fontweight="bold")
+<<<<<<< HEAD
         ax.set_ylabel("OUM − DDM (blue = DDM better, orange = OUM better)",
                        fontsize=11)
+=======
+        ax.set_ylabel("DDM − OUM discrepancy (negative ⇒ DDM fits better)", fontsize=11)
+>>>>>>> d7f98a0 (Major update)
         ax.grid(axis="y", alpha=0.3)
 
     plt.tight_layout()
@@ -127,7 +141,11 @@ def plot_ppc_heatmap(df: pd.DataFrame, title: str, save_path: str) -> None:
     ax.set_xticklabels(df.columns, rotation=45, ha="right", fontsize=9)
     ax.set_yticks(range(len(df.index)))
     ax.set_yticklabels(df.index, fontsize=10)
+<<<<<<< HEAD
     ax.set_title(f"{title}\n(blue = DDM better, orange = OUM better)",
+=======
+    ax.set_title(f"{title}\n(DDM − OUM: red = OUM better, blue = DDM better)",
+>>>>>>> d7f98a0 (Major update)
                  fontsize=13)
     plt.colorbar(im, ax=ax, label="OUM − DDM", shrink=0.8)
     plt.tight_layout()

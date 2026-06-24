@@ -12,7 +12,7 @@ dependencies:
   - seaborn>=0.13
   - numba>=0.59
   - pip:
-    - bayesflow==2.0.10
+    - bayesflow==2.0.12
     - jax[cuda12]>=0.4
     - jaxlib>=0.4
     - keras>=3.0

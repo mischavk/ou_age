@@ -3,7 +3,11 @@
 Loads PPC metrics saved by the parameter estimation script,
 computes DDM-OUM differences, and generates figures.
 
-Positive values = DDM fits better, negative = OUM fits better.
+Each metric is a fit discrepancy (lower = closer to data); figures/prints show
+DDM - OUM, so negative => DDM fits better, positive => OUM fits better.
+
+The reported RT-quantile RMSEs cover both the congruent and incongruent
+conditions (correct and error responses).
 
 Usage:
     python run_ppc_analysis.py
@@ -29,11 +33,21 @@ print("=" * 60)
 oum_df = pd.read_csv(os.path.join(DATA_DIR, "estimates", "iat_results_oum.csv"))
 ddm_df = pd.read_csv(os.path.join(DATA_DIR, "estimates", "iat_results_ddm.csv"))
 
-n_ppc_oum = oum_df["wd_c_congruent"].notna().sum()
-n_ppc_ddm = ddm_df["wd_c_congruent"].notna().sum()
+# As in run_analyses.py: a few hundred participants appear twice (same session_id
+# prepared into two data chunks). Drop duplicate ids so the PPC differences are
+# not double-counted. Both CSVs share the id ordering, so deduping each the same
+# way keeps them row-aligned for the elementwise DDM - OUM differences.
+oum_df = oum_df.drop_duplicates(subset="id").reset_index(drop=True)
+ddm_df = ddm_df.drop_duplicates(subset="id").reset_index(drop=True)
+assert (oum_df["id"].values == ddm_df["id"].values).all(), \
+    "DDM/OUM PPC result CSVs are not row-aligned after dedup"
+
+n_ppc_oum = oum_df["rms_median_c_congruent"].notna().sum()
+n_ppc_ddm = ddm_df["rms_median_c_congruent"].notna().sum()
 print(f"\n  OUM: {len(oum_df)} total, {n_ppc_oum} with PPC")
 print(f"  DDM: {len(ddm_df)} total, {n_ppc_ddm} with PPC")
 
+<<<<<<< HEAD
 # ── Wasserstein distance differences ──
 # OUM - DDM so positive = DDM has lower error = DDM fits better
 print("\nWasserstein distance (OUM - DDM, positive = DDM better):")
@@ -41,15 +55,23 @@ wd_cols = ["wd_c_congruent", "wd_e_congruent", "wd_c_incongruent", "wd_e_incongr
 for col in wd_cols:
     diff = np.nanmean(oum_df[col] - ddm_df[col])
     print(f"  {col:25s}: {diff:+.4f}")
+=======
+# ── RT-quantile RMSE columns, grouped by condition x outcome ──
+QSUFFIX = ["median", "q1", "q3", "q7", "q9"]
+RMSE_GROUPS = {
+    "correct congruent":   [f"rms_{q}_c_congruent" for q in QSUFFIX],
+    "error congruent":     [f"rms_{q}_e_congruent" for q in QSUFFIX],
+    "correct incongruent": [f"rms_{q}_c_incongruent" for q in QSUFFIX],
+    "error incongruent":   [f"rms_{q}_e_incongruent" for q in QSUFFIX],
+}
+>>>>>>> d7f98a0 (Major update)
 
-# ── RMSE differences ──
-rmse_cols = [
-    "rms_median_c_congruent", "rms_q1_c_congruent", "rms_q3_c_congruent",
-    "rms_q7_c_congruent", "rms_q9_c_congruent",
-    "rms_median_e_congruent", "rms_q1_e_congruent", "rms_q3_e_congruent",
-    "rms_q7_e_congruent", "rms_q9_e_congruent",
-]
+print("\nRT-quantile RMSE differences (DDM - OUM, negative => DDM fits better):")
+for label, cols in RMSE_GROUPS.items():
+    diff = np.nanmean((ddm_df[cols] - oum_df[cols]).values)
+    print(f"  {label:22s}: {diff:+.4f}")
 
+<<<<<<< HEAD
 print("\nRMSE differences (OUM - DDM, positive = DDM better):")
 print("  Correct-congruent:")
 for col in rmse_cols[:5]:
@@ -60,15 +82,21 @@ print("  Error-congruent:")
 for col in rmse_cols[5:]:
     diff = np.nanmean(oum_df[col] - ddm_df[col])
     print(f"    {col:35s}: {diff:+.4f}")
+=======
+print("\nAccuracy discrepancy differences (DDM - OUM):")
+for col in ["acc_err_congruent", "acc_err_incongruent"]:
+    diff = np.nanmean(ddm_df[col] - oum_df[col])
+    print(f"  {col:22s}: {diff:+.4f}")
+>>>>>>> d7f98a0 (Major update)
 
 # ── Figure: PPC comparison ──
-print("\nGenerating PPC figures...")
+print("\nGenerating PPC figure...")
 
-# Compute mean differences per metric category
-categories = ["RMSE\ncorrect\ncong.", "RMSE\nerror\ncong.",
-              "WD\ncorrect\ncong.", "WD\nerror\ncong.",
-              "WD\ncorrect\ninc.", "WD\nerror\ninc."]
+categories = ["Acc\ncong.", "Acc\ninc.",
+              "RMSE\ncorrect\ncong.", "RMSE\nerror\ncong.",
+              "RMSE\ncorrect\ninc.", "RMSE\nerror\ninc."]
 
+<<<<<<< HEAD
 # OUM - DDM so positive = DDM has lower error = DDM fits better
 rmse_c_diffs_raw = (oum_df[rmse_cols[:5]] - ddm_df[rmse_cols[:5]]).values.flatten()
 rmse_c_diffs = rmse_c_diffs_raw[~np.isnan(rmse_c_diffs_raw)]
@@ -79,24 +107,46 @@ wd_diffs = [
     (oum_df["wd_e_congruent"] - ddm_df["wd_e_congruent"]).dropna().values,
     (oum_df["wd_c_incongruent"] - ddm_df["wd_c_incongruent"]).dropna().values,
     (oum_df["wd_e_incongruent"] - ddm_df["wd_e_incongruent"]).dropna().values,
+=======
+
+def flat_diff(cols):
+    raw = (ddm_df[cols] - oum_df[cols]).values.flatten()
+    return raw[~np.isnan(raw)]
+
+
+acc_diffs = [
+    (ddm_df["acc_err_congruent"] - oum_df["acc_err_congruent"]).dropna().values,
+    (ddm_df["acc_err_incongruent"] - oum_df["acc_err_incongruent"]).dropna().values,
+>>>>>>> d7f98a0 (Major update)
 ]
+rmse_diffs = [flat_diff(cols) for cols in RMSE_GROUPS.values()]
+all_values = acc_diffs + rmse_diffs
 
-fig, ax = plt.subplots(figsize=(10, 6))
-
-all_values = [rmse_c_diffs, rmse_e_diffs] + wd_diffs
+fig, ax = plt.subplots(figsize=(11, 6))
 positions = range(len(categories))
 
-for pos, vals in zip(positions, all_values):
-    # Subsample for plotting if very large
-    if len(vals) > 5000:
-        vals_plot = np.random.choice(vals[~np.isnan(vals)], 5000, replace=False)
-    else:
-        vals_plot = vals[~np.isnan(vals)]
+# Fixed view: the bulk of the differences (and all the central tendencies) lie
+# well within +/-0.2. A handful of error-RT-RMSE differences are far larger
+# (sparse error trials -> noisy quantiles) and deliberately fall off-view so the
+# informative range stays legible.
+YLIM = 0.2
+rng = np.random.default_rng(0)
 
+<<<<<<< HEAD
     colors = ["tab:blue" if v >= 0 else "tab:orange" for v in vals_plot]
     ax.scatter(
         np.full_like(vals_plot, pos) + np.random.uniform(-0.15, 0.15, len(vals_plot)),
         vals_plot, alpha=0.05, s=5, c=colors,
+=======
+for pos, vals in zip(positions, all_values):
+    if len(vals) > 5000:
+        vals_plot = rng.choice(vals, 5000, replace=False)
+    else:
+        vals_plot = vals
+    ax.scatter(
+        np.full_like(vals_plot, pos) + rng.uniform(-0.15, 0.15, len(vals_plot)),
+        vals_plot, alpha=0.05, s=5, color="gray",
+>>>>>>> d7f98a0 (Major update)
     )
     med = np.nanmedian(vals)
     med_color = "tab:blue" if med >= 0 else "tab:orange"
@@ -107,15 +157,24 @@ for pos, vals in zip(positions, all_values):
     ax.plot([pos - 0.3, pos + 0.3], [mean_val] * 2,
             color=mean_color, linewidth=2, linestyle="--", zorder=5)
 
+_all_finite = np.concatenate(all_values)
+_n_clipped = int(np.sum(np.abs(_all_finite) > YLIM))
+ax.set_ylim(-YLIM, YLIM)
+print(f"  y-limit fixed to +/-{YLIM} "
+      f"({_n_clipped}/{_all_finite.size} points beyond view)")
+
 ax.axhline(0, color="black", linewidth=1, linestyle="--")
 ax.set_ylim(-0.25, 0.25)
 ax.set_xticks(positions)
 ax.set_xticklabels(categories, fontsize=10)
+<<<<<<< HEAD
 ax.set_ylabel("OUM − DDM (blue = DDM better, orange = OUM better)", fontsize=12)
+=======
+ax.set_ylabel("DDM − OUM discrepancy (negative ⇒ DDM fits better)", fontsize=12)
+>>>>>>> d7f98a0 (Major update)
 ax.set_title("IAT — PPC metric differences", fontsize=14, fontweight="bold")
 ax.grid(axis="y", alpha=0.3)
 
-# Legend
 from matplotlib.lines import Line2D
 legend_elements = [
     Line2D([0], [0], color="gray", linewidth=2.5, label="Median"),

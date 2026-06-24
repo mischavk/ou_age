@@ -1,7 +1,7 @@
 """
 sfi_functions.py — Model definitions and analysis utilities for OUM/DDM comparison.
 
-Implements the Ornstein-Uhlenbeck Model (OUM) and Drift Diffusion Model (DDM) using BayesFlow 2.0.10.
+Implements the Ornstein-Uhlenbeck Model (OUM) and Drift Diffusion Model (DDM) using BayesFlow 2.0.12.
 
 Models
 ------
@@ -12,7 +12,7 @@ Both models share the same simulator (``sfi_simulator_fun``); the OUM is obtaine
 by passing k > 0. Evidence accumulates between boundaries at ±a/2, starting at 0.
 Positive simulated RTs indicate a correct (upper boundary) response; negative RTs
 indicate an error (lower boundary) response. Trials exceeding 10 s or faster than
-100 ms are treated as outliers and set to 0.
+200 ms are treated as outliers and set to 0.
 
 Task naming convention
 ----------------------
@@ -33,7 +33,6 @@ import pandas as pd
 import seaborn as sns
 from numba import njit, prange
 from scipy.special import digamma
-from scipy.stats import wasserstein_distance
 
 # Fixed RNG for reproducibility across all prior-sampling calls.
 RNG = np.random.default_rng(2023)
@@ -76,11 +75,11 @@ def sfi_ddm_fast_prior() -> dict:
     Prior distributions::
 
         v   ~ Gamma(3.5, 1.0)
-        a   ~ 8 * sigmoid(N(-1.0, 1.0))   [bounded (0, 8), mean ≈ 2.5]
+        a   ~ 8 * sigmoid(N(-1.6, 1.0))   [bounded (0, 8), mean ≈ 1.6]
         ndt ~ Uniform(0.1, 1.0)
     """
     v = RNG.gamma(3.5, 1.0)
-    a = _sample_sigmoid_a(mu=-1.0, sigma=1.0, L=8.0)
+    a = _sample_sigmoid_a(mu=-1.6, sigma=1.0, L=8.0)
     ndt = RNG.uniform(0.1, 1.0)
     return dict(v=v, a=a, ndt=ndt)
 
@@ -99,14 +98,14 @@ def sfi_oum_fast_prior() -> dict:
     Prior distributions::
 
         v   ~ Gamma(3.5, 1.0)
-        a   ~ 8 * sigmoid(N(0.0, 1.0))   [bounded (0, 8), mean ≈ 4.0, sd ≈ 1.7]
+        a   ~ 8 * sigmoid(N(-0.25, 1.0))   [bounded (0, 8), mean ≈ 3.6]
         ndt ~ Uniform(0.1, 1.0)
-        k   ~ Gamma(4.0, 0.5) + 1.0   [mean=3.0, floor=1.0]
+        k   ~ Gamma(8.0, 0.5)   [mean = 4.0]
     """
     v = RNG.gamma(3.5, 1.0)
-    a = _sample_sigmoid_a(mu=0.0, sigma=1.0, L=8.0)
+    a = _sample_sigmoid_a(mu=-0.25, sigma=1.0, L=8.0)
     ndt = RNG.uniform(0.1, 1.0)
-    k = RNG.gamma(4.0, 0.5) + 1.0
+    k = RNG.gamma(8.0, 0.5)
     return dict(v=v, a=a, ndt=ndt, k=k)
 
 
@@ -123,12 +122,12 @@ def sfi_ddm_slow_prior() -> dict:
     -----
     Prior distributions::
 
-        v   ~ Gamma(6.0, 0.25)   [tighter around lower mean for slow responses]
-        a   ~ 10 * sigmoid(N(-1.3, 1.0))   [bounded (0, 10), mean ≈ 2.5, sd ≈ 1.7]
-        ndt ~ Uniform(0.1, 3.0)  [longer NDT range for slow tasks]
+        v   ~ Gamma(6.0, 0.25)   
+        a   ~ 10 * sigmoid(N(-0.7, 1.0))   [bounded (0, 10), mean ≈ 3.5]
+        ndt ~ Uniform(0.1, 3.0) 
     """
     v = RNG.gamma(6.0, 0.25)
-    a = _sample_sigmoid_a(mu=-1.3, sigma=1.0, L=10.0)
+    a = _sample_sigmoid_a(mu=-0.7, sigma=1.0, L=10.0)
     ndt = RNG.uniform(0.1, 3.0)
     return dict(v=v, a=a, ndt=ndt)
 
@@ -147,14 +146,14 @@ def sfi_oum_slow_prior() -> dict:
     Prior distributions::
 
         v   ~ Gamma(6.0, 0.25)
-        a   ~ 10 * sigmoid(N(1.3, 2.0))   [bounded (0, 10), mean ≈ 6.9, sd ≈ 2.4]
+        a   ~ 10 * sigmoid(N(0.5, 1.2))   [bounded (0, 10), mean ≈ 6.0]
         ndt ~ Uniform(0.1, 3.0)
-        k   ~ Gamma(4.0, 0.5) + 1.0   [mean=3.0, floor=1.0]
+        k   ~ Gamma(3.0, 0.3)  
     """
     v = RNG.gamma(6.0, 0.25)
-    a = _sample_sigmoid_a(mu=1.3, sigma=2.0, L=10.0)
+    a = _sample_sigmoid_a(mu=0.5, sigma=1.2, L=10.0)
     ndt = RNG.uniform(0.1, 3.0)
-    k = RNG.gamma(4.0, 0.5) + 1.0
+    k = RNG.gamma(3.0, 0.3) 
     return dict(v=v, a=a, ndt=ndt, k=k)
 
 
@@ -167,8 +166,6 @@ def sfi_simulator_fun(
     v: float,
     a: float,
     ndt: float,
-    sndt: float = 0,
-    sv: float = 0,
     k: float = 0.0,
 ) -> np.ndarray:
     """Simulate 100 RT trials via Euler-Maruyama integration (DDM or OUM).
@@ -188,10 +185,6 @@ def sfi_simulator_fun(
         Boundary separation (distance between upper and lower boundary).
     ndt : float
         Mean non-decision time (seconds).
-    sndt : float, optional
-        Half-range of uniform jitter added to ndt per trial. Default 0.
-    sv : float, optional
-        Standard deviation of trial-to-trial drift rate variability. Default 0.
     k : float, optional
         Self-excitation rate. Set to 0 for standard DDM. Default 0.
 
@@ -200,7 +193,7 @@ def sfi_simulator_fun(
     np.ndarray, shape (100,)
         Signed RTs: positive values indicate correct (upper boundary) responses,
         negative values indicate errors (lower boundary). Outlier trials
-        (|RT| > 10 s or |RT| < 0.1 s) are set to 0.
+        (|RT| > 10 s or |RT| < 0.2 s) are set to 0.
 
     Notes
     -----
@@ -209,23 +202,19 @@ def sfi_simulator_fun(
     out = np.zeros(100)
 
     for n in range(100):
-        # Trial-specific drift rate
-        v_trial = v + np.random.normal() * sv
-
         x = 0.0
         dt = 0.001
         n_steps = 0
         max_steps = 10000
-        ndt_trial = ndt + np.random.uniform(-0.5 * sndt, 0.5 * sndt)
 
         # Euler-Maruyama integration until boundary hit or timeout
         while (x > -a / 2) and (x < a / 2) and (n_steps < max_steps):
-            x += v_trial * dt + k * x * dt + np.sqrt(dt) * np.random.normal()
+            x += v * dt + k * x * dt + np.sqrt(dt) * np.random.normal()
             n_steps += 1
 
         rt = n_steps * dt
         # Convention: positive RT = correct (upper), negative RT = error (lower)
-        out[n] = rt + ndt_trial if x >= a / 2 else -rt - ndt_trial
+        out[n] = rt + ndt if x >= a / 2 else -rt - ndt
 
         # Remove outliers
         if (abs(out[n]) > 10) or (abs(out[n]) < 0.2):
@@ -238,14 +227,14 @@ def sfi_simulator_fun(
 # Likelihood wrappers
 # ---------------------------------------------------------------------------
 
-def sfi_likelihood_ddm(v: float, a: float, ndt: float, sndt: float = 0, sv: float = 0, k: float = 0.0) -> dict:
+def sfi_likelihood_ddm(v: float, a: float, ndt: float, k: float = 0.0) -> dict:
     """Return simulated RTs under the DDM (k fixed at 0).
 
     Wraps ``sfi_simulator_fun`` with k=0 for use as a BayesFlow likelihood.
 
     Parameters
     ----------
-    v, a, ndt, sndt, sv : float
+    v, a, ndt : float
         Model parameters (see ``sfi_simulator_fun``).
     k : float
         Ignored for the DDM; included for API compatibility.
@@ -253,28 +242,28 @@ def sfi_likelihood_ddm(v: float, a: float, ndt: float, sndt: float = 0, sv: floa
     Returns
     -------
     dict
-        ``{"rts": np.ndarray}`` — 100 signed RTs.
+        Keys: ``rts`` (100 signed RTs)
     """
-    rts = sfi_simulator_fun(v=v, a=a, ndt=ndt, sndt=sndt, sv=sv, k=k)
+    rts = sfi_simulator_fun(v=v, a=a, ndt=ndt, k=k)
     return dict(rts=rts)
 
 
-def sfi_likelihood_oum(v: float, a: float, ndt: float, k: float, sndt: float = 0, sv: float = 0) -> dict:
-    """Return simulated RTs under the OUM (k > 0 enables self-excitation).
+def sfi_likelihood_oum(v: float, a: float, ndt: float, k: float) -> dict:
+    """Return simulated RTs under the OUM (k > 0).
 
     Wraps ``sfi_simulator_fun`` for use as a BayesFlow likelihood.
 
     Parameters
     ----------
-    v, a, ndt, sndt, sv, k : float
+    v, a, ndt, k : float
         Model parameters (see ``sfi_simulator_fun``).
 
     Returns
     -------
     dict
-        ``{"rts": np.ndarray}`` — 100 signed RTs.
+        Keys: ``rts``
     """
-    rts = sfi_simulator_fun(v=v, a=a, ndt=ndt, sndt=sndt, sv=sv, k=k)
+    rts = sfi_simulator_fun(v=v, a=a, ndt=ndt, k=k)
     return dict(rts=rts)
 
 
@@ -296,13 +285,8 @@ def summarize_empirical_data(rt: np.ndarray) -> dict:
     dict with keys:
         ``c_qs`` : np.ndarray, shape (5,)
             Quantiles at [0.1, 0.3, 0.5, 0.7, 0.9] for correct RTs.
-            All NaN if no correct trials.
-        ``c_bin`` : np.ndarray
-            Full array of correct RTs (for Wasserstein distance).
         ``e_qs`` : np.ndarray, shape (5,)
             Quantiles for error RTs (absolute values).
-        ``e_bin`` : np.ndarray
-            Full array of error RTs.
     """
     out = {}
 
@@ -311,20 +295,16 @@ def summarize_empirical_data(rt: np.ndarray) -> dict:
     x = rt[mask]
     if x.size > 0:
         out["c_qs"] = np.quantile(x, QS)
-        out["c_bin"] = x.copy()
     else:
         out["c_qs"] = np.full(QS.shape[0], np.nan)
-        out["c_bin"] = np.array([])
 
     # Error trials
     mask = rt < 0
     x = rt[mask]
     if x.size > 0:
         out["e_qs"] = np.quantile(x, QS)
-        out["e_bin"] = x.copy()
     else:
         out["e_qs"] = np.full(QS.shape[0], np.nan)
-        out["e_bin"] = np.array([])
 
     return out
 
@@ -381,7 +361,7 @@ def compute_rmses(
         for i in range(qs_len):
             rmses[s, i + 5] = np.sqrt((emp_e_qs[i] - sim_qs[i]) ** 2)
 
-    # Average across posterior samples (NaN-safe)
+    # Average across posterior samples 
     mean_rmses = np.empty(n_metrics)
     for j in range(n_metrics):
         mean_rmses[j] = nanmean_numba(rmses[:, j])
@@ -412,76 +392,6 @@ def nanmean_numba(a: np.ndarray) -> float:
     return s / n if n > 0 else np.nan
 
 
-def safe_wasserstein(emp_bin: np.ndarray, sim_bin: np.ndarray) -> float:
-    """Compute the Wasserstein distance, returning NaN for empty arrays.
-
-    Parameters
-    ----------
-    emp_bin : np.ndarray
-        Empirical RT distribution.
-    sim_bin : np.ndarray
-        Simulated RT distribution.
-
-    Returns
-    -------
-    float
-        Wasserstein-1 distance, or NaN if either array is empty.
-    """
-    if emp_bin.size == 0 or sim_bin.size == 0:
-        return np.nan
-    return wasserstein_distance(emp_bin, sim_bin)
-
-
-# ---------------------------------------------------------------------------
-# Model comparison utilities
-# ---------------------------------------------------------------------------
-
-def calculate_exceedance_probabilities(
-    pmp_matrix: np.ndarray,
-    iterations: int = 10000,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Estimate exceedance probabilities via variational Bayes on a Dirichlet model.
-
-    Fits a Dirichlet posterior to the posterior model probability (PMP) matrix
-    using a mean-field variational Bayes algorithm, then Monte-Carlo estimates
-    the probability that each model has the highest frequency in the population.
-
-    Parameters
-    ----------
-    pmp_matrix : np.ndarray, shape (n_subjects, n_models)
-        Per-subject posterior model probabilities.
-    iterations : int, optional
-        Number of Monte-Carlo samples from the posterior Dirichlet for EP
-        estimation. Default 10 000.
-
-    Returns
-    -------
-    eps : np.ndarray, shape (n_models,)
-        Exceedance probability for each model.
-    alpha_post : np.ndarray, shape (n_models,)
-        Posterior Dirichlet concentration parameters.
-    """
-    n_subjects, n_models = pmp_matrix.shape
-    alpha_0 = np.ones(n_models)  # Uniform prior
-    alpha = np.copy(alpha_0)
-
-    # Variational Bayes: iterate until convergence (fixed 100 steps)
-    for _ in range(100):
-        exp_log_r = digamma(alpha) - digamma(np.sum(alpha))
-        weights = np.exp(exp_log_r)
-
-        g = pmp_matrix * weights
-        g /= g.sum(axis=1)[:, np.newaxis]
-
-        alpha = alpha_0 + g.sum(axis=0)
-
-    # Monte-Carlo estimate of exceedance probabilities
-    samples = np.random.dirichlet(alpha, size=iterations)
-    eps = (samples.argmax(axis=1)[:, None] == np.arange(n_models)).mean(axis=0)
-
-    return eps, alpha
-
-
 # ---------------------------------------------------------------------------
 # Analysis: age–parameter correlations
 # ---------------------------------------------------------------------------
@@ -494,9 +404,7 @@ def prepare_correlation_posteriors(
     model parameter and age, for all 9 fast or slow tasks.
 
     For each task and each posterior sample, computes the correlation between
-    participant-level parameter estimates and their ages. Posterior samples with
-    theoretically impossible values (negative boundary separation or non-decision
-    time) are excluded before computing correlations.
+    participant-level parameter estimates and their ages. 
 
     Parameters
     ----------
@@ -505,7 +413,6 @@ def prepare_correlation_posteriors(
         posteriors. If False, processes fast tasks (F* files). Default True.
     n_samples : int, optional
         Number of posterior samples to draw per parameter per task.
-        Larger values give smoother correlation distributions. Default 1000.
 
     Returns
     -------
@@ -520,10 +427,6 @@ def prepare_correlation_posteriors(
         where ``task_path`` is the full path to the task ``.txt`` file and
         ``param_name`` is one of ``"v"``, ``"a"``, ``"ndt"`` (DDM) or
         additionally ``"k"`` (OUM).
-    excl_stats : dict
-        Exclusion statistics with keys ``"ddm"`` and ``"oum"``, each containing
-        ``"total"`` (total participant×sample pairs) and ``"excluded"`` (number
-        excluded due to negative ``a`` or ``ndt``).
 
     Notes
     -----
@@ -532,11 +435,7 @@ def prepare_correlation_posteriors(
     ``(n_participants, n_samples, 1)``.
     """
     cor_dict = {"ddm": {}, "oum": {}}
-    excl_stats = {
-        "ddm": {"total": 0, "excluded": 0},
-        "oum": {"total": 0, "excluded": 0},
-    }
-
+ 
     questionnaires = pd.read_csv("sfi_data/estimates/questionnaires.csv", sep=" ")
     age = questionnaires["age"]
     ids = questionnaires["pp"]
@@ -580,11 +479,6 @@ def prepare_correlation_posteriors(
             (posterior_samples_oum["ndt"][:, :, 0] >= 0)
         )
 
-        excl_stats["ddm"]["total"] += valid_ddm.size
-        excl_stats["ddm"]["excluded"] += int((~valid_ddm).sum())
-        excl_stats["oum"]["total"] += valid_oum.size
-        excl_stats["oum"]["excluded"] += int((~valid_oum).sum())
-
         # DDM: for each parameter, compute correlation using only valid samples
         for parameter, param_samples in posterior_samples_ddm.items():
             n = param_samples.shape[1]
@@ -616,7 +510,7 @@ def prepare_correlation_posteriors(
         cor_dict["ddm"][task] = correlation_results_ddm[file]
         cor_dict["oum"][task] = correlation_results_oum[file]
 
-    return cor_dict, excl_stats
+    return cor_dict
 
 
 # ---------------------------------------------------------------------------
@@ -641,17 +535,13 @@ def plot_comparative_posteriors(
         Expects exactly 9 tasks.
     save_path : str or None, optional
         If provided, saves the figure to this path before displaying.
-        Supports any format recognised by matplotlib (e.g. ``".pdf"``,
-        ``".png"``). Default None (display only).
+        Default None (display only).
 
     Returns
     -------
     matplotlib.figure.Figure
         The generated figure.
 
-    Notes
-    -----
-    Assumes exactly 9 tasks. OUM includes all DDM parameters plus ``k``.
     """
     param_order = ["v", "a", "ndt", "k"]
     param_labels = {"v": "ν", "a": "a", "ndt": "τ", "k": "k"}
@@ -698,7 +588,7 @@ def plot_comparative_posteriors(
         ax.set_xticklabels([param_labels[p] for p in param_order], fontsize=16)
         ax.set_xlabel("Parameter", fontsize=14)
         ax.set_ylabel("Correlation with age", fontsize=14)
-        ax.set_ylim(-0.5, 0.7)
+        ax.set_ylim(-0.7, 0.7)
         ax.axhline(0, color="black", linewidth=1.5)
         ax.set_title(f"Task: {os.path.basename(task)}", fontsize=16)
         ax.grid(True, linestyle="--", alpha=0.5)
@@ -748,11 +638,6 @@ def plot_model_comparison_empirical(
     matplotlib.figure.Figure
         The generated figure.
 
-    Examples
-    --------
-    >>> # After running the model comparison approximator on all tasks:
-    >>> results = {task: pred_models_empirical for task, pred_models_empirical in ...}
-    >>> plot_model_comparison_empirical(results, save_path="figures/figure2.pdf")
     """
     if model_names is None:
         model_names = ["DDM", "OUM"]

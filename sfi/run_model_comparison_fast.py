@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 from sfi_functions import (
     sfi_ddm_fast_prior, sfi_oum_fast_prior,
     sfi_likelihood_ddm, sfi_likelihood_oum,
-    calculate_exceedance_probabilities,
 )
 
 FIGURES_DIR = "figures/"
@@ -56,7 +55,15 @@ simulator = bf.simulators.ModelComparisonSimulator(
     use_mixed_batches=True,
 )
 
-summary_network = bf.networks.SetTransformer(summary_dim=20)
+summary_network = bf.networks.SetTransformer(
+    embed_dims=(128, 128, 128, 128),
+    num_heads=(8, 8, 8, 8),
+    mlp_depths=(2, 2, 2, 2),
+    mlp_widths=(128, 128, 128, 128),
+    num_seeds=16,
+    summary_dim=12,
+)
+
 classifier_network = bf.networks.MLP(widths=(256,) * 16, activation="relu")
 
 approximator = bf.approximators.ModelComparisonApproximator(
@@ -64,37 +71,45 @@ approximator = bf.approximators.ModelComparisonApproximator(
     classifier_network=classifier_network,
     summary_network=summary_network,
     adapter=adapter,
-    standardize="summary_variables",
+    standardize=["summary_variables"],
 )
 
-learning_rate = keras.optimizers.schedules.CosineDecay(
-    1e-4, decay_steps=EPOCHS * NUM_BATCHES, alpha=1e-5
-)
-optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, clipnorm=1.0)
-approximator.compile(optimizer=optimizer)
+# ── 3. Train (or reuse the saved classifier) ──
+MODELS_DIR = "models/"
+mc_path = f"{MODELS_DIR}sfi_fast_mc.keras"
+if os.path.exists(mc_path):
+    print(f"Loading saved model-comparison network from {mc_path}...")
+    approximator = keras.saving.load_model(mc_path)
+else:
+    learning_rate = keras.optimizers.schedules.CosineDecay(
+        1e-4, decay_steps=EPOCHS * NUM_BATCHES, alpha=1e-5
+    )
+    optimizer = keras.optimizers.AdamW(learning_rate=learning_rate, clipnorm=1.0)
+    approximator.compile(optimizer=optimizer)
+    print(f"Training model comparison network ({EPOCHS} epochs, {NUM_BATCHES} batches)...")
+    history = approximator.fit(
+        epochs=EPOCHS,
+        num_batches=NUM_BATCHES,
+        batch_size=BATCH_SIZE,
+        simulator=simulator,
+        adapter=adapter,
+    )
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    approximator.save(mc_path)
+    print(f"  Saved {mc_path}")
 
-# ── 3. Train ──
-print(f"Training model comparison network ({EPOCHS} epochs, {NUM_BATCHES} batches)...")
-history = approximator.fit(
-    epochs=EPOCHS,
-    num_batches=NUM_BATCHES,
-    batch_size=BATCH_SIZE,
-    simulator=simulator,
-    adapter=adapter,
-)
-
-# ── 4. Loss curve ──
-print("Plotting loss curve...")
-f = bf.diagnostics.plots.loss(history=history)
-f.savefig(f"{FIGURES_DIR}loss_model_comparison_fast.pdf", bbox_inches="tight")
-plt.close(f)
+    # Loss curve
+    print("Plotting loss curve...")
+    f = bf.diagnostics.plots.loss(history=history)
+    f.savefig(f"{FIGURES_DIR}loss_model_comparison_fast.pdf", bbox_inches="tight")
+    plt.close(f)
 
 # ── 5. Validation on simulated data ──
 print("Generating validation predictions (10,000 samples)...")
 df_sampled = simulator.sample(10000)
 pred_models = np.concatenate([
-    approximator.predict(conditions={"rts": x})
-    for x in np.array_split(df_sampled["rts"], 50)
+    approximator.predict(conditions={"rts": df_sampled["rts"][idx]})
+    for idx in np.array_split(np.arange(len(df_sampled["rts"])), 50)
 ], axis=0)
 
 # Calibration (Appendix A1)
@@ -148,7 +163,7 @@ for ax, file in zip(axes, files):
     grouped = df_last100.groupby("pp")
     n_persons = grouped.ngroups
 
-    result = np.full((n_persons, 100, 1), np.nan, dtype=np.float32)
+    result = np.zeros((n_persons, 100, 1), dtype=np.float32)
     for i, (_, group) in enumerate(grouped):
         rts = group["rt_mod"].values
         result[i, : len(rts), 0] = rts
@@ -168,9 +183,6 @@ for ax, file in zip(axes, files):
     bfs = pmp_oum_clipped / (1 - pmp_oum_clipped)
     log_gbf = np.sum(np.log(bfs))
     print(f"    Log Group BF: {log_gbf:.1f}")
-
-    eps, alpha_post = calculate_exceedance_probabilities(pred_models_empirical)
-    print(f"    Exceedance Prob (OUM): {eps[1]:.4f}")
 
     sns.violinplot(data=pred_models_empirical, ax=ax, cut=0)
     ax.set_title(task_name)

@@ -41,25 +41,6 @@ fig = plot_comparative_posteriors(
 plt.close(fig)
 print(f"  Saved {FIGURES_DIR}figure3b_age_correlations_slow.pdf")
 
-# ── Posterior exclusion summary ──
-print("\nPosterior sample exclusion (negative a or ndt):")
-print(f"{'':10s} {'Task set':10s} {'Model':6s} {'Total':>12s} {'Excluded':>10s} {'%':>8s}")
-print("-" * 55)
-for task_label, stats in [("Fast", stats_fast), ("Slow", stats_slow)]:
-    for model in ("ddm", "oum"):
-        tot = stats[model]["total"]
-        excl = stats[model]["excluded"]
-        pct = 100.0 * excl / tot if tot > 0 else 0.0
-        print(f"{'':10s} {task_label:10s} {model.upper():6s} {tot:>12,} {excl:>10,} {pct:>7.4f}%")
-
-# Combined across fast + slow
-print("-" * 55)
-for model in ("ddm", "oum"):
-    tot = stats_fast[model]["total"] + stats_slow[model]["total"]
-    excl = stats_fast[model]["excluded"] + stats_slow[model]["excluded"]
-    pct = 100.0 * excl / tot if tot > 0 else 0.0
-    print(f"{'':10s} {'Combined':10s} {model.upper():6s} {tot:>12,} {excl:>10,} {pct:>7.4f}%")
-
 # ── Table 3: Age correlations (LaTeX) ──
 print("\nGenerating Table 3 (age correlations)...")
 

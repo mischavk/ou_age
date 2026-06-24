@@ -1,7 +1,7 @@
 """iat_functions.py — Model definitions and utilities for IAT DDM/OUM comparison.
 
 Implements the Ornstein-Uhlenbeck Model (OUM) and Drift Diffusion Model (DDM) for
-reaction-time analysis of Implicit Association Test (IAT) data using BayesFlow 2.0.10.
+reaction-time analysis of Implicit Association Test (IAT) data using BayesFlow 2.0.12.
 
 Models
 ------
@@ -18,7 +18,6 @@ IAT-specific features
 
 import numpy as np
 from numba import njit, prange
-from scipy.stats import wasserstein_distance
 
 RNG = np.random.default_rng(2023)
 
@@ -26,7 +25,7 @@ QS = np.array([0.1, 0.3, 0.7, 0.9])
 
 
 # ---------------------------------------------------------------------------
-# Sigmoid helpers (matching sfi_functions.py)
+# Sigmoid helpers 
 # ---------------------------------------------------------------------------
 
 def _sigmoid(x: float) -> float:
@@ -63,19 +62,19 @@ def iat_oum_prior_fun() -> dict:
     Prior distributions::
 
         drifts      ~ Gamma(3.5, 1.0) × 2
-        thresholds  ~ 8·sigmoid(N(0.0, 1.0)) × 2   [bounded (0, 8)]
+        thresholds  ~ 8·sigmoid(N(-0.25, 1.0)) × 2   [bounded (0, 8)]
         ndt_correct ~ Uniform(0.1, 1.0)
         ndt_error   ~ Gamma(2.0, 0.3)
-        k           ~ Gamma(4.0, 0.5) + 1.0         [mean=3.0, floor=1.0]
+        k           ~ Gamma(8.0, 0.5)               [mean = 4.0]
     """
     drifts = RNG.gamma(3.5, 1.0, size=2)
     thresholds = np.array([
-        _sample_sigmoid_a(mu=0.0, sigma=1.0, L=8.0),
-        _sample_sigmoid_a(mu=0.0, sigma=1.0, L=8.0),
+        _sample_sigmoid_a(mu=-0.25, sigma=1.0, L=8.0),
+        _sample_sigmoid_a(mu=-0.25, sigma=1.0, L=8.0),
     ])
     ndt_correct = RNG.uniform(0.1, 1.0)
     ndt_error = RNG.gamma(2.0, 0.3)
-    k = RNG.gamma(4.0, 0.5) + 1.0
+    k = RNG.gamma(8.0, 0.5)
 
     return dict(
         drifts=drifts,
@@ -100,14 +99,14 @@ def iat_ddm_prior_fun() -> dict:
     Prior distributions::
 
         drifts      ~ Gamma(3.5, 1.0) × 2
-        thresholds  ~ 8·sigmoid(N(-1.0, 1.0)) × 2   [bounded (0, 8)]
+        thresholds  ~ 8·sigmoid(N(-1.6, 1.0)) × 2   [bounded (0, 8)]
         ndt_correct ~ Uniform(0.1, 1.0)
         ndt_error   ~ Gamma(2.0, 0.3)
     """
     drifts = RNG.gamma(3.5, 1.0, size=2)
     thresholds = np.array([
-        _sample_sigmoid_a(mu=-1.0, sigma=1.0, L=8.0),
-        _sample_sigmoid_a(mu=-1.0, sigma=1.0, L=8.0),
+        _sample_sigmoid_a(mu=-1.6, sigma=1.0, L=8.0),
+        _sample_sigmoid_a(mu=-1.6, sigma=1.0, L=8.0),
     ])
     ndt_correct = RNG.uniform(0.1, 1.0)
     ndt_error = RNG.gamma(2.0, 0.3)
@@ -193,7 +192,7 @@ def iat_simulator_fun(drifts, thresholds, ndt_correct, ndt_error, k=0.0):
 # ---------------------------------------------------------------------------
 
 def iat_likelihood(drifts, thresholds, ndt_correct, ndt_error, k=0.0):
-    """Likelihood wrapper for BayesFlow: returns dict with key 'out'."""
+    """Likelihood wrapper for BayesFlow: returns 'out' (the trial array)."""
     out = iat_simulator_fun(drifts, thresholds, ndt_correct, ndt_error, k)
     return dict(out=out)
 
@@ -225,18 +224,22 @@ def nanmean_numba(a):
 
 @njit(parallel=True)
 def compute_rmses_parallel_safe(sim_rts, sim_cond,
-                                emp_c_med, emp_c_qs,
-                                emp_e_med, emp_e_qs):
-    """Compute RMSE metrics for congruent trials (correct + error).
+                                emp_c_cong_med, emp_c_cong_qs,
+                                emp_e_cong_med, emp_e_cong_qs,
+                                emp_c_inc_med, emp_c_inc_qs,
+                                emp_e_inc_med, emp_e_inc_qs):
+    """Compute RMSE metrics for congruent and incongruent trials (correct + error).
 
-    Returns 10 metrics: [median_c, q1_c, q3_c, q7_c, q9_c,
-                          median_e, q1_e, q3_e, q7_e, q9_e]
-    averaged across PPC samples.
+    Returns 20 metrics, averaged across PPC samples:
+      congruent   [median_c, q1_c, q3_c, q7_c, q9_c, median_e, q1_e, q3_e, q7_e, q9_e]
+      incongruent [median_c, q1_c, q3_c, q7_c, q9_c, median_e, q1_e, q3_e, q7_e, q9_e]
+    (indices 0-9 congruent, 10-19 incongruent).
     """
     n_samples, n_trials = sim_rts.shape
-    n_metrics = 10
+    n_metrics = 20
     rmses = np.empty((n_samples, n_metrics))
-    qs_len = len(emp_c_qs)
+    qs_len = len(emp_c_cong_qs)
+    qgrid = np.array([0.1, 0.3, 0.7, 0.9])
 
     for s in prange(n_samples):
         rt = sim_rts[s]
@@ -244,35 +247,40 @@ def compute_rmses_parallel_safe(sim_rts, sim_cond,
 
         c = rt > 0
         e = rt < 0
-        cong = cond == 0
+        # cond_val 0 = congruent (offset 0), 1 = incongruent (offset 10)
+        for ci in range(2):
+            base = ci * 10
+            condm = cond == ci
+            if ci == 0:
+                ec_med = emp_c_cong_med; ec_qs = emp_c_cong_qs
+                ee_med = emp_e_cong_med; ee_qs = emp_e_cong_qs
+            else:
+                ec_med = emp_c_inc_med; ec_qs = emp_c_inc_qs
+                ee_med = emp_e_inc_med; ee_qs = emp_e_inc_qs
 
-        # correct–congruent
-        mask = c & cong
-        sim_rt = rt[mask]
-        if sim_rt.size > 0:
-            sim_med = np.median(sim_rt)
-            sim_qs = np.quantile(sim_rt, np.array([0.1, 0.3, 0.7, 0.9]))
-        else:
-            sim_med = np.nan
-            sim_qs = np.full(qs_len, np.nan)
+            # correct
+            sim_rt = rt[c & condm]
+            if sim_rt.size > 0:
+                sim_med = np.median(sim_rt)
+                sim_qs = np.quantile(sim_rt, qgrid)
+            else:
+                sim_med = np.nan
+                sim_qs = np.full(qs_len, np.nan)
+            rmses[s, base + 0] = np.sqrt((ec_med - sim_med) ** 2)
+            for i in range(qs_len):
+                rmses[s, base + i + 1] = np.sqrt((ec_qs[i] - sim_qs[i]) ** 2)
 
-        rmses[s, 0] = np.sqrt((emp_c_med - sim_med) ** 2)
-        for i in range(qs_len):
-            rmses[s, i + 1] = np.sqrt((emp_c_qs[i] - sim_qs[i]) ** 2)
-
-        # error–congruent
-        mask = e & cong
-        sim_rt = rt[mask]
-        if sim_rt.size > 0:
-            sim_med = np.median(sim_rt)
-            sim_qs = np.quantile(sim_rt, np.array([0.1, 0.3, 0.7, 0.9]))
-        else:
-            sim_med = np.nan
-            sim_qs = np.full(qs_len, np.nan)
-
-        rmses[s, 5] = np.sqrt((emp_e_med - sim_med) ** 2)
-        for i in range(qs_len):
-            rmses[s, i + 6] = np.sqrt((emp_e_qs[i] - sim_qs[i]) ** 2)
+            # error
+            sim_rt = rt[e & condm]
+            if sim_rt.size > 0:
+                sim_med = np.median(sim_rt)
+                sim_qs = np.quantile(sim_rt, qgrid)
+            else:
+                sim_med = np.nan
+                sim_qs = np.full(qs_len, np.nan)
+            rmses[s, base + 5] = np.sqrt((ee_med - sim_med) ** 2)
+            for i in range(qs_len):
+                rmses[s, base + i + 6] = np.sqrt((ee_qs[i] - sim_qs[i]) ** 2)
 
     # posterior mean
     mean_rmses = np.empty(n_metrics)
@@ -307,7 +315,7 @@ def summarize_empirical_safe(emp):
 
 
 def summarize_empirical_bins(emp):
-    """Compute medians, quantiles, and full bin arrays for Wasserstein distance."""
+    """Compute medians, quantiles"""
     rt = emp[:, 0]
     cond = emp[:, 2]
     out = {}
@@ -324,17 +332,8 @@ def summarize_empirical_bins(emp):
         if x.size > 0:
             out[f"{label}_med"] = np.median(x)
             out[f"{label}_qs"] = np.quantile(x, QS)
-            out[f"{label}_bin"] = x.copy()
         else:
             out[f"{label}_med"] = np.nan
             out[f"{label}_qs"] = np.full(QS.shape[0], np.nan)
-            out[f"{label}_bin"] = np.array([])
 
     return out
-
-
-def safe_wasserstein(emp_bin, sim_bin):
-    """Wasserstein distance, returning NaN for empty inputs."""
-    if emp_bin.size == 0 or sim_bin.size == 0:
-        return np.nan
-    return wasserstein_distance(emp_bin, sim_bin)

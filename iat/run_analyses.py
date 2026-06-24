@@ -30,6 +30,16 @@ oum_df = pd.read_csv(os.path.join(DATA_DIR, "estimates", "iat_results_oum.csv"))
 ddm_df = pd.read_csv(os.path.join(DATA_DIR, "estimates", "iat_results_ddm.csv"))
 
 joint_df = oum_df.join(ddm_df, lsuffix="_oum", rsuffix="_ddm")
+# The join is positional; guard against mismatched estimation runs.
+assert len(oum_df) == len(ddm_df) and (
+    joint_df["id_oum"].values == joint_df["id_ddm"].values
+).all(), "DDM/OUM result CSVs are not row-aligned (different estimation runs?)"
+# A small number of participants (~939) appear twice in the estimates because the
+# same session_id was prepared into two data chunks. Keep one row per participant
+# so every downstream analysis (age trends, correlations, and the subgroup plots)
+# counts each person once. This is separate from the demographics-file dedup
+# below, which guards the merge against duplicate session_ids on that side.
+joint_df = joint_df.drop_duplicates(subset="id_ddm")
 joint_df = joint_df[(joint_df["age_ddm"] >= 10) & (joint_df["age_ddm"] <= 80)]
 
 print(f"  OUM: {len(oum_df)} persons")
@@ -111,7 +121,7 @@ tex_path = "table3_age_correlations_iat.tex"
 with open(tex_path, "w") as f:
     f.write(r"""\begin{table}[ht]
 \centering
-\caption{Pearson age correlations for DDM and OUM parameters in the IAT (Study 2, $N = """ + f"{len(joint_df)}" + r"""$).}
+\caption{Pearson age correlations for DDM and OUM parameters in the IAT (Study 2, $N = """ + f"{len(joint_df):,}" + r"""$).}
 \label{tab:age_correlations}
 \begin{tabular}{l cc}
 \toprule
@@ -136,7 +146,11 @@ print(f"  Saved {tex_path}")
 demo_path = os.path.join(DATA_DIR, "estimates", "iat_demographics.csv")
 if os.path.exists(demo_path):
     print("\nLoading demographics...")
-    demographics_df = pd.read_csv(demo_path, low_memory=False)
+    # Drop duplicate session_ids in demographics_df so the merge does not
+    # double-count participants into the subgroup statistics.
+    demographics_df = pd.read_csv(demo_path, low_memory=False).drop_duplicates(
+        subset="session_id"
+    )
     joint_df_demo = joint_df.merge(
         demographics_df, left_on="id_ddm", right_on="session_id"
     )
@@ -162,9 +176,11 @@ if os.path.exists(demo_path):
 
     # b) By gender
     ax = axes[0, 1]
+    # Project Implicit coding:
+    # birthsex 1 = Male, 2 = Female.
     df_gender = joint_df_demo.copy()
     df_gender = df_gender[(df_gender["birthsex"] == 1) | (df_gender["birthsex"] == 2)]
-    df_gender["birthsex"] = df_gender["birthsex"].map({1: "Female", 2: "Male"})
+    df_gender["birthsex"] = df_gender["birthsex"].map({1: "Male", 2: "Female"})
     sns.lineplot(
         data=df_gender.sort_values("age_ddm"),
         x="age_ddm", y="k",
@@ -181,10 +197,21 @@ if os.path.exists(demo_path):
             fontsize=14, fontweight="bold", va="bottom")
 
     # c) By location
+    # Residence coding changed across collection years: 2003-2014 store "US" /
+    # country codes / "other country" in `is_us`; 2015-2016 store countryres
+    # codes there ("1" = US); 2017+ leave `is_us` empty and use `countryres`
+    # ("1" = US). A participant counts as US-resident if either column says US;
+    # rows where both columns are missing are excluded (not counted as non-US).
     ax = axes[1, 0]
-    joint_df_demo["is_us"] = joint_df_demo["is_us"] == "1"
+    us_codes = {"US", "1", "1.0"}
+    missing_codes = {"nan", "<NA>", "None", "", ".", "-999", "-999.0"}
+    isu = joint_df_demo["is_us"].astype(str).str.strip()
+    cres = joint_df_demo["countryres"].astype(str).str.strip()
+    known = ~isu.isin(missing_codes) | ~cres.isin(missing_codes)
+    joint_df_demo["is_us"] = isu.isin(us_codes) | cres.isin(us_codes)
+    df_loc = joint_df_demo[known]
     sns.lineplot(
-        data=joint_df_demo.sort_values("age_ddm"),
+        data=df_loc.sort_values("age_ddm"),
         x="age_ddm", y="k",
         estimator=np.mean, errorbar="sd",
         marker="o", hue="is_us",

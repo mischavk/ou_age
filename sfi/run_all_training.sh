@@ -9,7 +9,6 @@
 #   5. Figure 1 schematic               — DDM vs. OUM illustration
 #
 # All scripts use JAX backend and the priors defined in sfi_functions.py.
-# Expected total runtime: ~8-12 hours on RTX 4080 Super.
 
 set -e
 

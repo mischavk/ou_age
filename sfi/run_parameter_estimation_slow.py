@@ -13,6 +13,7 @@ import os
 
 os.environ["KERAS_BACKEND"] = "jax"
 
+import keras
 import bayesflow as bf
 import pandas as pd
 import matplotlib
@@ -22,18 +23,44 @@ import matplotlib.pyplot as plt
 from sfi_functions import (
     sfi_ddm_slow_prior, sfi_oum_slow_prior,
     sfi_likelihood_ddm, sfi_likelihood_oum,
-    summarize_empirical_data, compute_rmses, safe_wasserstein,
+    summarize_empirical_data, compute_rmses
 )
 
 FIGURES_DIR = "figures/"
 os.makedirs(FIGURES_DIR, exist_ok=True)
 
+MODELS_DIR = "models/"      # trained networks are saved here for reuse
+
+# Parameter labels for the diagnostic figures (order matches the adapter).
+DDM_LABELS = [r"$v$ (drift)", r"$a$ (boundary)", r"$\tau$ (NDT)"]
+OUM_LABELS = DDM_LABELS + [r"$k$ (self-excitation)"]
+
 # ── Training hyperparameters ──
+
 NUM_TRAIN = 64000
 NUM_VAL = 1000
-EPOCHS = 100
+EPOCHS = 100   
 N_SAMPLES = 3000       # posterior samples per participant (matching fast)
 N_PPC_SAMPLES = 100    # PPC simulations per participant
+
+
+def make_summary_net() -> "bf.networks.SetTransformer":
+    """Large SetTransformer summary network.
+    """
+    return bf.networks.SetTransformer(
+        embed_dims=(128, 128, 128, 128),
+        num_heads=(8, 8, 8, 8),
+        mlp_depths=(2, 2, 2, 2),
+        mlp_widths=(128, 128, 128, 128),
+        num_seeds=16,
+        summary_dim=12,
+    )
+
+
+def make_inference_net() -> "bf.networks.CouplingFlow":
+    """Affine CouplingFlow (default settings) — inference network used across
+    all experiments (IAT + SFI fast/slow)."""
+    return bf.networks.CouplingFlow()
 
 FILES = sorted([
     os.path.join("sfi_data", f)
@@ -42,8 +69,12 @@ FILES = sorted([
 ])
 
 
-def load_task_data(file: str) -> np.ndarray:
-    """Load and clean RT data for one task, return (n_persons, 100, 1) array."""
+def load_task_data(file: str) -> dict:
+    """Load and clean RT data for one task.
+
+    Returns a conditions dict ready for ``workflow.sample(conditions=...)``:
+    ``rts`` with shape ``(n_persons, 100, 1)``.
+    """
     df = pd.read_csv(file, sep=" ")
     df.loc[df["RT"] < 200, "RT"] = 0
     df.loc[df["RT"] > 10000, "RT"] = 0
@@ -54,19 +85,20 @@ def load_task_data(file: str) -> np.ndarray:
     grouped = df_last100.groupby("pp")
     n_persons = grouped.ngroups
 
-    result = np.full((n_persons, 100, 1), np.nan, dtype=np.float32)
+    rts = np.zeros((n_persons, 100, 1), dtype=np.float32)
     for i, (_, group) in enumerate(grouped):
-        rts = group["rt_mod"].values
-        result[i, : len(rts), 0] = rts
-    return result
+        row = group["rt_mod"].values
+        rts[i, : len(row), 0] = row
+
+    return {"rts": rts}
 
 
-def run_ppc(workflow, result: np.ndarray, real_samples: dict,
+def run_ppc(result: np.ndarray, real_samples: dict,
             likelihood_fn, param_keys: list) -> dict:
     """Run posterior predictive checks for one task."""
     n_persons = result.shape[0]
     rmses = np.empty((n_persons, 10))
-    wd = np.empty((n_persons, 2))
+    acc = np.empty(n_persons)  
 
     for person in range(n_persons):
         if (person + 1) % 20 == 0 or person == n_persons - 1:
@@ -83,15 +115,15 @@ def run_ppc(workflow, result: np.ndarray, real_samples: dict,
 
         rmses[person] = compute_rmses(sim_rts, emp_summary["c_qs"], emp_summary["e_qs"])
 
-        wd_samples = np.empty((N_PPC_SAMPLES, 2))
-        for s in range(N_PPC_SAMPLES):
-            rt = sim_rts[s]
-            wd_samples[s, 0] = safe_wasserstein(emp_summary["c_bin"], rt[rt > 0])
-            wd_samples[s, 1] = safe_wasserstein(emp_summary["e_bin"], rt[rt < 0])
-        wd[person] = np.nanmean(wd_samples, axis=0)
+        emp_acc = (emp > 0).sum() / max((emp != 0).sum(), 1)
+        sim_acc = np.array([
+            (sim_rts[s] > 0).sum() / max((sim_rts[s] != 0).sum(), 1)
+            for s in range(N_PPC_SAMPLES)
+        ])
+        acc[person] = abs(sim_acc.mean() - emp_acc)
 
     print()  # newline after \r
-    return {"rmse": rmses, "wd": wd}
+    return {"rmse": rmses, "acc": acc}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -107,36 +139,45 @@ sfi_ddm_simulator = bf.make_simulator([sfi_ddm_slow_prior, sfi_likelihood_ddm])
 sfi_ddm_adapter = (
     bf.Adapter()
     .as_set(["rts"])
+    .constrain("v", lower=0.0)
+    .constrain("a", lower=0.0, upper=10.0)
+    .constrain("ndt", lower=0.1, upper=3.0)
     .convert_dtype(from_dtype="float64", to_dtype="float32")
     .concatenate(["v", "a", "ndt"], into="inference_variables")
     .rename("rts", "summary_variables")
 )
 
-print(f"Simulating training data ({NUM_TRAIN} samples)...")
-train_data = sfi_ddm_simulator.sample(NUM_TRAIN)
+print(f"Sampling validation data ({NUM_VAL} samples)...")
 val_data = sfi_ddm_simulator.sample(NUM_VAL)
-
-summary_net = bf.networks.SetTransformer(summary_dim=20)
-inference_net = bf.networks.CouplingFlow(transform="spline")
 
 sfi_ddm_workflow = bf.BasicWorkflow(
     simulator=sfi_ddm_simulator,
     adapter=sfi_ddm_adapter,
-    inference_network=inference_net,
-    summary_network=summary_net,
-    inference_variables=["v", "a", "ndt"],
-    initial_learning_rate=5e-5,
+    inference_network=make_inference_net(),
+    summary_network=make_summary_net(),
+    standardize="all",
+    initial_learning_rate=5e-4,
 )
 
-print(f"Training DDM inference network ({EPOCHS} epochs)...")
-sfi_ddm_history = sfi_ddm_workflow.fit_offline(
-    train_data, epochs=EPOCHS, batch_size=32, validation_data=val_data
-)
+os.makedirs(MODELS_DIR, exist_ok=True)
+_ddm_path = f"{MODELS_DIR}sfi_slow_ddm.keras"
+if os.path.exists(_ddm_path):
+    print(f"Loading saved DDM network from {_ddm_path}...")
+    sfi_ddm_workflow.approximator = keras.saving.load_model(_ddm_path)
+else:
+    print(f"Training DDM inference network offline ({NUM_TRAIN} sims, {EPOCHS} epochs)...")
+    train_data = sfi_ddm_simulator.sample(NUM_TRAIN)
+    sfi_ddm_workflow.fit_offline(
+        train_data, epochs=EPOCHS, batch_size=32, validation_data=val_data
+    )
+    sfi_ddm_workflow.approximator.save(_ddm_path)
+    print(f"  Saved {_ddm_path}")
 
 # Diagnostics (Appendix A4)
 print("Generating DDM diagnostics...")
 figures = sfi_ddm_workflow.plot_default_diagnostics(
     test_data=500,
+    variable_names=DDM_LABELS,
     loss_kwargs={"figsize": (15, 3), "label_fontsize": 12},
     recovery_kwargs={"figsize": (15, 6), "label_fontsize": 12},
     calibration_ecdf_kwargs={
@@ -157,16 +198,17 @@ for file in FILES:
     task_name = os.path.basename(file).replace(".txt", "")
     print(f"\n  Task: {task_name}")
 
-    result = load_task_data(file)
-    print(f"    {result.shape[0]} participants")
+    conditions = load_task_data(file)
+    rts = conditions["rts"]
+    print(f"    {rts.shape[0]} participants")
 
     real_samples = sfi_ddm_workflow.sample(
-        conditions={"rts": result}, num_samples=N_SAMPLES
+        conditions=conditions, num_samples=N_SAMPLES
     )
     np.save(file.replace(".txt", "_sfi_slow_ddm_estimates.npy"), real_samples)
     print(f"    Saved estimates ({N_SAMPLES} posterior samples)")
 
-    ppc = run_ppc(sfi_ddm_workflow, result, real_samples,
+    ppc = run_ppc(rts, real_samples,
                   sfi_likelihood_ddm, ["v", "a", "ndt"])
     np.save(file.replace(".txt", "_sfi_slow_ddm_ppc.npy"), ppc)
     print(f"    Saved PPC metrics")
@@ -185,36 +227,46 @@ sfi_oum_simulator = bf.make_simulator([sfi_oum_slow_prior, sfi_likelihood_oum])
 sfi_oum_adapter = (
     bf.Adapter()
     .as_set(["rts"])
+    .constrain("v", lower=0.0)
+    .constrain("a", lower=0.0, upper=10.0)
+    .constrain("ndt", lower=0.1, upper=3.0)
+    .constrain("k", lower=0.0)
     .convert_dtype(from_dtype="float64", to_dtype="float32")
     .concatenate(["v", "a", "ndt", "k"], into="inference_variables")
     .rename("rts", "summary_variables")
 )
 
-print(f"Simulating training data ({NUM_TRAIN} samples)...")
-train_data = sfi_oum_simulator.sample(NUM_TRAIN)
+print(f"Sampling validation data ({NUM_VAL} samples)...")
 val_data = sfi_oum_simulator.sample(NUM_VAL)
-
-summary_net = bf.networks.SetTransformer(summary_dim=20)
-inference_net = bf.networks.CouplingFlow(transform="spline")
 
 sfi_oum_workflow = bf.BasicWorkflow(
     simulator=sfi_oum_simulator,
     adapter=sfi_oum_adapter,
-    inference_network=inference_net,
-    summary_network=summary_net,
-    inference_variables=["v", "a", "ndt", "k"],
-    initial_learning_rate=5e-5,
+    inference_network=make_inference_net(),
+    summary_network=make_summary_net(),
+    standardize="all",
+    initial_learning_rate=5e-4,
 )
 
-print(f"Training OUM inference network ({EPOCHS} epochs)...")
-sfi_oum_history = sfi_oum_workflow.fit_offline(
-    train_data, epochs=EPOCHS, batch_size=32, validation_data=val_data
-)
+os.makedirs(MODELS_DIR, exist_ok=True)
+_oum_path = f"{MODELS_DIR}sfi_slow_oum.keras"
+if os.path.exists(_oum_path):
+    print(f"Loading saved OUM network from {_oum_path}...")
+    sfi_oum_workflow.approximator = keras.saving.load_model(_oum_path)
+else:
+    print(f"Training OUM inference network offline ({NUM_TRAIN} sims, {EPOCHS} epochs)...")
+    train_data = sfi_oum_simulator.sample(NUM_TRAIN)
+    sfi_oum_workflow.fit_offline(
+        train_data, epochs=EPOCHS, batch_size=32, validation_data=val_data
+    )
+    sfi_oum_workflow.approximator.save(_oum_path)
+    print(f"  Saved {_oum_path}")
 
 # Diagnostics (Appendix A4)
 print("Generating OUM diagnostics...")
 figures = sfi_oum_workflow.plot_default_diagnostics(
     test_data=500,
+    variable_names=OUM_LABELS,
     loss_kwargs={"figsize": (15, 3), "label_fontsize": 12},
     recovery_kwargs={"figsize": (15, 6), "label_fontsize": 12},
     calibration_ecdf_kwargs={
@@ -235,16 +287,17 @@ for file in FILES:
     task_name = os.path.basename(file).replace(".txt", "")
     print(f"\n  Task: {task_name}")
 
-    result = load_task_data(file)
-    print(f"    {result.shape[0]} participants")
+    conditions = load_task_data(file)
+    rts = conditions["rts"]
+    print(f"    {rts.shape[0]} participants")
 
     real_samples = sfi_oum_workflow.sample(
-        conditions={"rts": result}, num_samples=N_SAMPLES
+        conditions=conditions, num_samples=N_SAMPLES
     )
     np.save(file.replace(".txt", "_sfi_slow_oum_estimates.npy"), real_samples)
     print(f"    Saved estimates ({N_SAMPLES} posterior samples)")
 
-    ppc = run_ppc(sfi_oum_workflow, result, real_samples,
+    ppc = run_ppc(rts, real_samples,
                   sfi_likelihood_oum, ["v", "a", "ndt", "k"])
     np.save(file.replace(".txt", "_sfi_slow_oum_ppc.npy"), ppc)
     print(f"    Saved PPC metrics")
