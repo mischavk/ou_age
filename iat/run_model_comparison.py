@@ -140,53 +140,83 @@ plt.close(f)
 print(f"  Saved {FIGURES_DIR}figureC2_confusion_matrix_iat.pdf")
 
 # ── 6. Empirical data analysis (Figure 4) ──
+# Each chunk's per-person model probabilities are written to a partial CSV so the
+# long pass is resumable: a chunk whose partial already exists is skipped on
+# restart. (Clear _partial_mc if the classifier network changes.) Predictions use
+# a FIXED batch size with the last batch padded to that size, so XLA compiles the
+# prediction once and reuses it for every batch in every chunk; the earlier
+# variable-size np.array_split forced a recompile per chunk, growing the JAX
+# compilation cache until the process segfaulted.
+PREDICT_BATCH = 1024
+MAXCHUNKS = int(os.environ.get("MAXCHUNKS", "0"))  # 0 => all chunks (+ aggregate)
+
 datasets = sorted([f for f in os.listdir(DATA_DIR) if f.endswith(".p")])
+run_datasets = datasets[:MAXCHUNKS] if MAXCHUNKS else datasets
 print(f"\nApplying to {len(datasets)} empirical data chunks...")
 
-result_dict = {}
-for dataset_name in datasets:
+partial_dir = os.path.join(DATA_DIR, "estimates", "_partial_mc")
+os.makedirs(partial_dir, exist_ok=True)
+
+
+def predict_model_probs(emp_array):
+    """Per-person [DDM, OUM] probabilities, batched at a single fixed shape."""
+    n = emp_array.shape[0]
+    out = np.empty((n, 2), dtype=np.float32)
+    for start in range(0, n, PREDICT_BATCH):
+        stop = min(start + PREDICT_BATCH, n)
+        batch = emp_array[start:stop]
+        m = batch.shape[0]
+        if m < PREDICT_BATCH:  # pad the final batch so the compiled shape is reused
+            batch = np.concatenate(
+                [batch, np.repeat(batch[-1:], PREDICT_BATCH - m, axis=0)], axis=0)
+        out[start:stop] = approximator.predict(conditions={"out": batch})[:m]
+    return out
+
+
+for di, dataset_name in enumerate(run_datasets):
+    chunk_csv = os.path.join(partial_dir, dataset_name.replace(".p", ".csv"))
+    if os.path.exists(chunk_csv):
+        print(f"  {dataset_name}: already done, skipping")
+        continue
     empirical_data = pd.read_pickle(os.path.join(DATA_DIR, dataset_name))
     emp_array = empirical_data["data_array"]
-    id_array = empirical_data["outcome_array"][:, 0]
+    id_array = empirical_data["outcome_array"][:, 0].astype(np.int64)
 
-    n_split = 50
-    chunks_out = np.array_split(emp_array, n_split)
-
+    probs = predict_model_probs(emp_array)
+    pd.DataFrame({"id": id_array, "DDM": probs[:, 0], "OUM": probs[:, 1]}).to_csv(
+        chunk_csv, index=False)
+    print(f"  [{di + 1}/{len(run_datasets)}] {dataset_name}: {probs.shape[0]} persons, "
+          f"median DDM={np.median(probs[:, 0]):.3f}, OUM={np.median(probs[:, 1]):.3f}",
+          flush=True)
+    del empirical_data, emp_array, probs
     gc.collect()
-    pred_models_empirical = np.concatenate([
-        approximator.predict(conditions={"out": chunks_out[i]})
-        for i in range(n_split)
-    ], axis=0)
 
-    result_dict[dataset_name] = {"model_probs": pred_models_empirical, "ids": id_array}
-    print(f"  {dataset_name}: {pred_models_empirical.shape[0]} persons, "
-          f"median DDM={np.median(pred_models_empirical[:, 0]):.3f}, "
-          f"OUM={np.median(pred_models_empirical[:, 1]):.3f}")
+if MAXCHUNKS:
+    print(f"\nMAXCHUNKS={MAXCHUNKS}: stopping before aggregation.")
+    raise SystemExit(0)
 
-# Combine all chunks
-all_probs = np.concatenate([v["model_probs"] for v in result_dict.values()], axis=0)
-all_ids = np.concatenate([v["ids"] for v in result_dict.values()]).astype(np.int64)
+# Combine all partial chunk CSVs (in datasets order)
+all_df = pd.concat(
+    [pd.read_csv(os.path.join(partial_dir, d.replace(".p", ".csv"))) for d in datasets],
+    ignore_index=True)
 
 # A few hundred participants appear twice (the same session_id was prepared into
 # two data chunks). Keep the first occurrence so duplicates are not counted twice
 # in the model-probability summaries (matches the dedup in run_analyses.py).
-_, first_idx = np.unique(all_ids, return_index=True)
-keep = np.sort(first_idx)
-n_dup = len(all_ids) - len(keep)
-all_probs = all_probs[keep]
-all_ids = all_ids[keep]
+n_before = len(all_df)
+all_df = all_df.drop_duplicates(subset="id").reset_index(drop=True)
+all_probs = all_df[["DDM", "OUM"]].values
 
-print(f"\nTotal: {all_probs.shape[0]} persons ({n_dup} duplicate sessions dropped)")
+print(f"\nTotal: {len(all_df)} persons ({n_before - len(all_df)} duplicate sessions dropped)")
 print(f"  Overall median: DDM={np.median(all_probs[:, 0]):.3f}, "
       f"OUM={np.median(all_probs[:, 1]):.3f}")
 print(f"  DDM preferred: {np.sum(all_probs[:, 0] > 0.5)}")
 print(f"  OUM preferred: {np.sum(all_probs[:, 1] > 0.5)}")
 
 # Save CSV (id included so the results stay auditable and dedup-able)
-df_mc = pd.DataFrame({"id": all_ids, "DDM": all_probs[:, 0], "OUM": all_probs[:, 1]})
 csv_path = os.path.join(DATA_DIR, "estimates", "iat_model_comparison_results.csv")
 os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-df_mc.to_csv(csv_path, index=False)
+all_df.to_csv(csv_path, index=False)
 print(f"  Saved {csv_path}")
 
 # Violin plot (Figure 4)
