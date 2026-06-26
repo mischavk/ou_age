@@ -47,15 +47,6 @@ n_ppc_ddm = ddm_df["rms_median_c_congruent"].notna().sum()
 print(f"\n  OUM: {len(oum_df)} total, {n_ppc_oum} with PPC")
 print(f"  DDM: {len(ddm_df)} total, {n_ppc_ddm} with PPC")
 
-<<<<<<< HEAD
-# ── Wasserstein distance differences ──
-# OUM - DDM so positive = DDM has lower error = DDM fits better
-print("\nWasserstein distance (OUM - DDM, positive = DDM better):")
-wd_cols = ["wd_c_congruent", "wd_e_congruent", "wd_c_incongruent", "wd_e_incongruent"]
-for col in wd_cols:
-    diff = np.nanmean(oum_df[col] - ddm_df[col])
-    print(f"  {col:25s}: {diff:+.4f}")
-=======
 # ── RT-quantile RMSE columns, grouped by condition x outcome ──
 QSUFFIX = ["median", "q1", "q3", "q7", "q9"]
 RMSE_GROUPS = {
@@ -64,30 +55,16 @@ RMSE_GROUPS = {
     "correct incongruent": [f"rms_{q}_c_incongruent" for q in QSUFFIX],
     "error incongruent":   [f"rms_{q}_e_incongruent" for q in QSUFFIX],
 }
->>>>>>> d7f98a0 (Major update)
 
 print("\nRT-quantile RMSE differences (DDM - OUM, negative => DDM fits better):")
 for label, cols in RMSE_GROUPS.items():
     diff = np.nanmean((ddm_df[cols] - oum_df[cols]).values)
     print(f"  {label:22s}: {diff:+.4f}")
 
-<<<<<<< HEAD
-print("\nRMSE differences (OUM - DDM, positive = DDM better):")
-print("  Correct-congruent:")
-for col in rmse_cols[:5]:
-    diff = np.nanmean(oum_df[col] - ddm_df[col])
-    print(f"    {col:35s}: {diff:+.4f}")
-
-print("  Error-congruent:")
-for col in rmse_cols[5:]:
-    diff = np.nanmean(oum_df[col] - ddm_df[col])
-    print(f"    {col:35s}: {diff:+.4f}")
-=======
 print("\nAccuracy discrepancy differences (DDM - OUM):")
 for col in ["acc_err_congruent", "acc_err_incongruent"]:
     diff = np.nanmean(ddm_df[col] - oum_df[col])
     print(f"  {col:22s}: {diff:+.4f}")
->>>>>>> d7f98a0 (Major update)
 
 # ── Figure: PPC comparison ──
 print("\nGenerating PPC figure...")
@@ -96,18 +73,6 @@ categories = ["Acc\ncong.", "Acc\ninc.",
               "RMSE\ncorrect\ncong.", "RMSE\nerror\ncong.",
               "RMSE\ncorrect\ninc.", "RMSE\nerror\ninc."]
 
-<<<<<<< HEAD
-# OUM - DDM so positive = DDM has lower error = DDM fits better
-rmse_c_diffs_raw = (oum_df[rmse_cols[:5]] - ddm_df[rmse_cols[:5]]).values.flatten()
-rmse_c_diffs = rmse_c_diffs_raw[~np.isnan(rmse_c_diffs_raw)]
-rmse_e_diffs_raw = (oum_df[rmse_cols[5:]] - ddm_df[rmse_cols[5:]]).values.flatten()
-rmse_e_diffs = rmse_e_diffs_raw[~np.isnan(rmse_e_diffs_raw)]
-wd_diffs = [
-    (oum_df["wd_c_congruent"] - ddm_df["wd_c_congruent"]).dropna().values,
-    (oum_df["wd_e_congruent"] - ddm_df["wd_e_congruent"]).dropna().values,
-    (oum_df["wd_c_incongruent"] - ddm_df["wd_c_incongruent"]).dropna().values,
-    (oum_df["wd_e_incongruent"] - ddm_df["wd_e_incongruent"]).dropna().values,
-=======
 
 def flat_diff(cols):
     raw = (ddm_df[cols] - oum_df[cols]).values.flatten()
@@ -117,7 +82,6 @@ def flat_diff(cols):
 acc_diffs = [
     (ddm_df["acc_err_congruent"] - oum_df["acc_err_congruent"]).dropna().values,
     (ddm_df["acc_err_incongruent"] - oum_df["acc_err_incongruent"]).dropna().values,
->>>>>>> d7f98a0 (Major update)
 ]
 rmse_diffs = [flat_diff(cols) for cols in RMSE_GROUPS.values()]
 all_values = acc_diffs + rmse_diffs
@@ -132,12 +96,6 @@ positions = range(len(categories))
 YLIM = 0.2
 rng = np.random.default_rng(0)
 
-<<<<<<< HEAD
-    colors = ["tab:blue" if v >= 0 else "tab:orange" for v in vals_plot]
-    ax.scatter(
-        np.full_like(vals_plot, pos) + np.random.uniform(-0.15, 0.15, len(vals_plot)),
-        vals_plot, alpha=0.05, s=5, c=colors,
-=======
 for pos, vals in zip(positions, all_values):
     if len(vals) > 5000:
         vals_plot = rng.choice(vals, 5000, replace=False)
@@ -146,7 +104,6 @@ for pos, vals in zip(positions, all_values):
     ax.scatter(
         np.full_like(vals_plot, pos) + rng.uniform(-0.15, 0.15, len(vals_plot)),
         vals_plot, alpha=0.05, s=5, color="gray",
->>>>>>> d7f98a0 (Major update)
     )
     med = np.nanmedian(vals)
     med_color = "tab:blue" if med >= 0 else "tab:orange"
@@ -167,11 +124,7 @@ ax.axhline(0, color="black", linewidth=1, linestyle="--")
 ax.set_ylim(-0.25, 0.25)
 ax.set_xticks(positions)
 ax.set_xticklabels(categories, fontsize=10)
-<<<<<<< HEAD
-ax.set_ylabel("OUM − DDM (blue = DDM better, orange = OUM better)", fontsize=12)
-=======
 ax.set_ylabel("DDM − OUM discrepancy (negative ⇒ DDM fits better)", fontsize=12)
->>>>>>> d7f98a0 (Major update)
 ax.set_title("IAT — PPC metric differences", fontsize=14, fontweight="bold")
 ax.grid(axis="y", alpha=0.3)
 
